@@ -181,6 +181,31 @@ function dnaColor(dna,l=55,a=1) {
 
 // ─── Factories ────────────────────────────────────────────────────────────────
 let nextId=1;
+
+// ─── Save / load (this browser only) ──────────────────────────────────────────
+const SAVE_KEY="homebase-save-v1";
+function readSave(){
+  try{
+    const raw=localStorage.getItem(SAVE_KEY); if(!raw) return null;
+    const d=JSON.parse(raw);
+    if(d&&d.v===1&&Array.isArray(d.map)&&d.state&&Array.isArray(d.state.inventory)) return d;
+  }catch(e){}
+  return null;
+}
+function writeSave(map,state,tick){
+  try{
+    const data={v:1,savedAt:Date.now(),tick,nextId,map,state:{...state,events:[],floats:[]}};
+    localStorage.setItem(SAVE_KEY,JSON.stringify(data));
+    return data;
+  }catch(e){ return null; }
+}
+function clearSave(){ try{ localStorage.removeItem(SAVE_KEY); }catch(e){} }
+function timeAgo(ts){
+  const m=Math.round((Date.now()-ts)/60000);
+  if(m<1) return "just now"; if(m<60) return m+" min ago";
+  const h=Math.round(m/60); if(h<24) return h+(h===1?" hour ago":" hours ago");
+  const d=Math.round(h/24); return d+(d===1?" day ago":" days ago");
+}
 function makeCreature(col,row,dna=null) {
   dna=dna||randomDNA();
   return { id:nextId++, type:"creature", col, row, dna, moves:deriveMoves(dna),
@@ -1208,8 +1233,40 @@ export default function Homebase(){
   const inputRef=useRef({dx:0,dy:0,capturePressed:false,fightPressed:false});
   const battleRef=useRef(null);
 
-  const[screen,setScreen]=useState("editor"); // editor | game
+  const[saveInfo,setSaveInfo]=useState(()=>readSave());
+  const[screen,setScreen]=useState(()=>readSave()?"title":"editor"); // title | editor | game | gameover
   const[mapData,setMapData]=useState(null);
+  const mapRef=useRef(null);
+  const[lastSaved,setLastSaved]=useState(0);
+  const[confirmNew,setConfirmNew]=useState(false);
+
+  // Write the current world to this browser's storage
+  const saveNow=useCallback(()=>{
+    if(!mapRef.current||!stateRef.current) return;
+    if(!stateRef.current.inventory.length) return; // nothing worth resuming
+    const d=writeSave(mapRef.current,stateRef.current,tickRef.current);
+    if(d){ setSaveInfo(d); setLastSaved(Date.now()); }
+  },[]);
+
+  // Resume a saved world
+  const continueGame=useCallback(()=>{
+    const d=readSave(); if(!d) { setScreen("editor"); return; }
+    mapRef.current=d.map; setMapData(d.map);
+    stateRef.current={...d.state,events:[],floats:[]};
+    tickRef.current=d.tick||0;
+    const maxId=[...d.state.creatures,...d.state.plants,...d.state.inventory].reduce((m,e)=>Math.max(m,e.id||0),0);
+    nextId=Math.max(d.nextId||1,maxId+1);
+    setUiState(u=>({...u,creatures:d.state.creatures.length,plants:d.state.plants.length,tick:tickRef.current,inventory:d.state.inventory}));
+    setScreen("game");
+  },[]);
+
+  // Save when the tab is hidden or closed
+  useEffect(()=>{
+    const onHide=()=>{ if(document.visibilityState==="hidden") saveNow(); };
+    document.addEventListener("visibilitychange",onHide);
+    window.addEventListener("pagehide",saveNow);
+    return()=>{document.removeEventListener("visibilitychange",onHide);window.removeEventListener("pagehide",saveNow);};
+  },[saveNow]);
   const[dims,setDims]=useState({W:390,H:320});
   const[uiState,setUiState]=useState({creatures:0,plants:0,tick:0,inventory:[],paused:false});
   const[battle,setBattle]=useState(null);
@@ -1247,6 +1304,7 @@ export default function Homebase(){
 
   // Start game after editor
   const handleMapDone=useCallback((map)=>{
+    mapRef.current=map;
     setMapData(map);
     setScreen("game");
     const W=window.innerWidth, H=Math.max(160,window.innerHeight-214-36-8);
@@ -1272,8 +1330,10 @@ export default function Homebase(){
       player:makePlayer(map),
       inventory:[starter], events:[], floats:[], tick:0,
     };
+    tickRef.current=0;
     setUiState(u=>({...u,inventory:[starter]}));
-  },[]);
+    saveNow();
+  },[saveNow]);
 
   // Camera-based rendering — no pre-render needed
 
@@ -1308,6 +1368,7 @@ export default function Homebase(){
             stateRef.current={...s,floats:[...s.floats,{id:nextId++,col:s.player.col,row:s.player.row,text:"No creature nearby!",color:"#f87171",tick:tickRef.current}]};
           }
         }
+        if(tickRef.current%100===0) saveNow();
         if(tickRef.current%6===0) setUiState(u=>({...u,creatures:stateRef.current.creatures.length,plants:stateRef.current.plants.length,tick:tickRef.current,inventory:stateRef.current.inventory}));
       }
       // Draw
@@ -1385,9 +1446,10 @@ export default function Homebase(){
     setUiState(u=>({...u,inventory:remaining}));
     // Game over if no creatures left
     if(!wasStarter && remaining.length===0) {
+      clearSave(); setSaveInfo(null);
       setTimeout(()=>setScreen("gameover"), 600);
-    }
-  },[]);
+    } else saveNow();
+  },[saveNow]);
 
   const handleBattleCapture=useCallback((capturedWild,playerBattleState)=>{
     setBattle(null); battleRef.current=null;
@@ -1402,11 +1464,49 @@ export default function Homebase(){
       :[playerBack,...s.inventory.slice(1)];
     stateRef.current={...s,inventory:newInv,creatures:s.creatures.map(c=>c.id===capturedWild.id?{...c,dead:true,deathReason:"captured"}:c)};
     setUiState(u=>({...u,inventory:stateRef.current.inventory}));
-  },[]);
+    saveNow();
+  },[saveNow]);
 
   const elapsed=Math.floor(uiState.tick*TICK_MS/1000);
   const timeStr=`${Math.floor(elapsed/60).toString().padStart(2,"0")}:${(elapsed%60).toString().padStart(2,"0")}`;
   const btnBase={background:"rgba(200,230,160,0.09)",border:"1.5px solid rgba(200,230,160,0.2)",borderRadius:10,color:"#c8e6a0",fontFamily:"Georgia,serif",fontSize:13,cursor:"pointer",WebkitTapHighlightColor:"transparent",touchAction:"none",userSelect:"none",WebkitUserSelect:"none",display:"flex",alignItems:"center",justifyContent:"center",gap:4};
+
+  if(screen==="title"&&saveInfo){
+    const inv=saveInfo.state.inventory;
+    const topLv=inv.reduce((m,c)=>Math.max(m,c.level||1),1);
+    const secs=Math.floor((saveInfo.tick||0)*TICK_MS/1000);
+    const played=secs>=3600?Math.floor(secs/3600)+"h "+Math.floor((secs%3600)/60)+"m":Math.floor(secs/60)+"m "+(secs%60)+"s";
+    const tBtn={width:"100%",borderRadius:10,padding:"13px",fontFamily:"Georgia,serif",fontSize:15,cursor:"pointer",letterSpacing:"0.06em",WebkitTapHighlightColor:"transparent",touchAction:"manipulation",userSelect:"none",WebkitUserSelect:"none"};
+    const startNew=()=>{ if(!confirmNew){setConfirmNew(true);return;} clearSave(); setSaveInfo(null); setConfirmNew(false); setScreen("editor"); };
+    return(
+      <div style={{position:"fixed",inset:0,background:"#0e0e0e",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",gap:22,padding:"24px max(20px, env(safe-area-inset-right, 0px)) 24px max(20px, env(safe-area-inset-left, 0px))"}}>
+        <div style={{color:"#c8e6a0",fontSize:28,letterSpacing:"0.22em",textTransform:"uppercase"}}>Homebase</div>
+        <div style={{width:"100%",maxWidth:300,boxSizing:"border-box",background:"#141414",border:"1px solid #232a1c",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{color:"#4a6a32",fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase"}}>Saved world · {timeAgo(saveInfo.savedAt)}</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+            {inv.slice(0,INVENTORY_MAX).map(c=>(
+              <div key={c.id} title={"Lv"+(c.level||1)} style={{width:26,height:26,borderRadius:"50%",background:dnaColor(c.dna,55),boxShadow:"0 0 8px "+dnaColor(c.dna,55,0.4),display:"flex",alignItems:"center",justifyContent:"center",color:"#0e0e0e",fontSize:9,fontWeight:"bold"}}>{c.level||1}</div>
+            ))}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",color:"#7a8a6a",fontSize:12,fontVariantNumeric:"tabular-nums"}}>
+            <span>{inv.length} in bag · best Lv{topLv}</span><span>{played} played</span>
+          </div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10,width:"100%",maxWidth:300}}>
+          <button onClick={continueGame} onContextMenu={e=>e.preventDefault()}
+            style={{...tBtn,background:"rgba(200,230,160,0.16)",border:"1.5px solid rgba(200,230,160,0.45)",color:"#e3f5c8"}}>
+            ▶ Continue
+          </button>
+          <button onClick={startNew} onContextMenu={e=>e.preventDefault()}
+            style={{...tBtn,background:confirmNew?"rgba(248,113,113,0.15)":"transparent",border:"1.5px solid "+(confirmNew?"rgba(248,113,113,0.5)":"#2a2a2a"),color:confirmNew?"#f87171":"#7a7a7a",fontSize:14}}>
+            {confirmNew?"Tap again to erase this world":"New world"}
+          </button>
+          {confirmNew&&<button onClick={()=>setConfirmNew(false)} style={{...tBtn,background:"transparent",border:"none",color:"#5a5a5a",fontSize:13,padding:"4px"}}>Keep my world</button>}
+        </div>
+        <div style={{color:"#3a4a2a",fontSize:11,textAlign:"center",maxWidth:280,lineHeight:1.6}}>Progress saves automatically in this browser.</div>
+      </div>
+    );
+  }
 
   if(screen==="editor") return <MapEditor onDone={handleMapDone}/>;
 
@@ -1435,6 +1535,7 @@ export default function Homebase(){
               stateRef.current={...stateRef.current,inventory:[starter],player:makePlayer(mapData)};
               setUiState(u=>({...u,inventory:[starter]}));
               setScreen("game");
+              setTimeout(saveNow,0);
             }
           }}
           onClick={()=>{
@@ -1445,6 +1546,7 @@ export default function Homebase(){
               stateRef.current={...stateRef.current,inventory:[starter],player:makePlayer(mapData)};
               setUiState(u=>({...u,inventory:[starter]}));
               setScreen("game");
+              setTimeout(saveNow,0);
             }
           }}
           onContextMenu={e=>e.preventDefault()}
@@ -1463,6 +1565,7 @@ export default function Homebase(){
         <div style={{display:"flex",gap:10,marginLeft:"auto",alignItems:"center"}}>
           <span style={{color:"#4a6a32",fontSize:11}}>🐾 <span style={{color:"#86efac"}}>{uiState.creatures}</span></span>
           <span style={{color:"#4a6a32",fontSize:11}}>🌿 <span style={{color:"#4ade80"}}>{uiState.plants}</span></span>
+          <span style={{color:"#6a8a52",fontSize:10,letterSpacing:"0.08em",opacity:Date.now()-lastSaved<2500?1:0,transition:"opacity 0.6s"}}>💾 saved</span>
           <span style={{color:"#3a5228",fontFamily:"monospace",fontSize:11}}>{timeStr}</span>
         </div>
       </div>
