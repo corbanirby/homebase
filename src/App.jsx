@@ -683,6 +683,14 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
   const[participantIds,setParticipantIds]=useState(new Set([playerCreature.id])); // for XP split
   const logRef=useRef(null);
   const playerRef=useRef(player);
+  const busyRef=useRef(false);        // true from the moment you act until your next turn starts
+  const afterQueueRef=useRef(null);   // runs once the current messages finish (e.g. the foe's turn)
+  // Single gate for every player action: blocks double taps before React re-renders
+  function claimTurn(){
+    if(phase!=="player_turn"||busyRef.current) return false;
+    busyRef.current=true; setPhase("message"); return true;
+  }
+  function giveTurnBack(){ busyRef.current=false; setPhase("player_turn"); }
   const enemyRef=useRef(enemy);
   useEffect(()=>{playerRef.current=player;},[player]);
   useEffect(()=>{enemyRef.current=enemy;},[enemy]);
@@ -699,6 +707,10 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
       setLog(l=>[...l,String(item.msg||'')]);
       if(!rest.length){
         setPending(null);
+        if(afterQueueRef.current){
+          const next=afterQueueRef.current; afterQueueRef.current=null;
+          setTimeout(next,300); return;
+        }
         const p=playerRef.current, e=enemyRef.current;
         if(e.battleHp<=0) setTimeout(()=>endBattle("win",p,e),300);
         else if(p.battleHp<=0){
@@ -706,7 +718,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
           if(remaining.length>0) setPhase("forced_swap");
           else setTimeout(()=>endBattle("loss",p,e),300);
         }
-        else setPhase("player_turn");
+        else giveTurnBack();
       } else setPending(rest);
     },700);
     return()=>clearTimeout(timer);
@@ -797,8 +809,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
   }
 
   function handleMove(move){
-    if(phase!=="player_turn")return;
-    setPhase("message");
+    if(!claimTurn())return;
     const r1=executeBattleMove(player,enemy,move);
     const items=[];
 
@@ -845,27 +856,20 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
     // Queue enemy turn after all player messages resolve
     playerRef.current=r1.newAttacker; enemyRef.current=currentEnemy;
     const playerAfterMove=r1.newAttacker;
-    // We need to delay enemy turn until items drain — encode it as a callback on last item
-    const lastItem=items[items.length-1];
-    items[items.length-1]={
-      ...lastItem,
-      applyState:()=>{
-        if(lastItem.applyState) lastItem.applyState();
-        // Fire enemy turn after a short pause post-last-message
-        setTimeout(()=>doEnemyTurn(currentEnemy,playerAfterMove,[]),300);
-      }
-    };
+    // Foe acts only after your messages finish; input stays locked until then
+    afterQueueRef.current=()=>doEnemyTurn(currentEnemy,playerAfterMove,[]);
     setPending(items);
   }
 
   function tryCapture(){
-    if(phase!=="player_turn")return;
-    setPhase("message");
+    if(!claimTurn())return;
     const ch=Math.min(0.95,Math.max(0.05,0.05+(1-enemy.battleHp/enemy.maxHp)*0.947));
     const pct=Math.round(ch*100);
     if(Math.random()<ch){
+      const caught={...wildCreature,hp:enemy.battleHp/enemy.maxHp,level:enemy.level};
+      const mine={battleHp:player.battleHp,maxHp:player.maxHp};
+      afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine),400); };
       setPending([{msg:"Threw a catch... Caught! ("+pct+"% chance)"}]);
-      setTimeout(()=>onCapture({...wildCreature,hp:enemy.battleHp/enemy.maxHp,level:enemy.level},{battleHp:player.battleHp,maxHp:player.maxHp}),1400);
     } else {
       const{b:eAfter}=applyEndOfTurn(enemy);
       doEnemyTurn(eAfter,player,[{msg:"Threw a catch... Escaped! ("+pct+"%) — weaken more!"}]);
@@ -873,10 +877,9 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
   }
 
   function handleSwap(idx){
-    if(phase!=="player_turn")return;
     if(idx===0)return;
+    if(!claimTurn())return;
     setShowSwap(false);
-    setPhase("message");
     // Save current battler's HP back to inventory slot 0 before swapping
     onSaveBattleHp(0, player.battleHp, player.maxHp);
     onSwapToFront(idx);
@@ -971,7 +974,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
                       const nb=makeBattler(inc);
                       setPlayer(nb);setActiveCreature(inc);
                       setParticipantIds(prev=>new Set([...prev,inc.id]));
-                      setPhase("player_turn");
+                      giveTurnBack();
                       setLog(l=>[...l,"Go, new creature!"]);
                     }}
                     onMouseDown={()=>{
@@ -980,7 +983,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
                       const nb=makeBattler(inc);
                       setPlayer(nb);setActiveCreature(inc);
                       setParticipantIds(prev=>new Set([...prev,inc.id]));
-                      setPhase("player_turn");
+                      giveTurnBack();
                       setLog(l=>[...l,"Go, new creature!"]);
                     }}
                     onContextMenu={e=>e.preventDefault()}
