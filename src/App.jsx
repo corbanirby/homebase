@@ -739,7 +739,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
       const lvMsg=lu?" Level UP → Lv"+nl+"!":"";
       setLog(l=>{const m=[...l,"Won! +"+xpEach+" XP"+xpMsg+"."+lvMsg];if(lmsg)m.push(lmsg);return m;});
       setPhase("end");
-      setTimeout(()=>onEnd("win",{...fp,xp:nxp,level:nl,moves:nm,hp:fp.battleHp/fp.maxHp},participantIds),lu?1800:1200);
+      setTimeout(()=>onEnd("win",{...fp,xp:nxp,level:nl,moves:nm,hp:fp.battleHp/fp.maxHp},participantIds,xpEach),lu?1800:1200);
     } else {
       setLog(l=>[...l,"Your creature fainted..."]);
       setPhase("end");
@@ -930,8 +930,8 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
               {player.moves.map(move=>(
                 <button key={move.id}
-                  onTouchStart={e=>{e.preventDefault();e.stopPropagation();handleMove(move);}}
-                  onMouseDown={()=>handleMove(move)}
+                  
+                  onClick={()=>handleMove(move)}
                   onContextMenu={e=>e.preventDefault()}
                   style={{...btnStyle,background:`${TYPE_COLORS[move.type]}22`,border:`1.5px solid ${TYPE_COLORS[move.type]}88`,borderRadius:8,padding:"7px 6px",color:"#e2e8f0",fontSize:12,textAlign:"left"}}>
                   <div style={{fontWeight:"bold",marginBottom:1}}>{move.name}</div>
@@ -945,15 +945,15 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
               ))}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();tryCapture();}} onMouseDown={tryCapture} onContextMenu={e=>e.preventDefault()}
+              <button onClick={tryCapture} onContextMenu={e=>e.preventDefault()}
                 style={{...btnStyle,background:"rgba(251,191,36,0.15)",border:"1.5px solid rgba(251,191,36,0.5)",borderRadius:8,padding:"7px 4px",color:"#fbbf24",fontSize:11}}>
                 ⚡ CATCH<br/><span style={{fontSize:9,opacity:0.8}}>({catchPct}%)</span>
               </button>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();setShowSwap(true);}} onMouseDown={()=>setShowSwap(true)} onContextMenu={e=>e.preventDefault()}
+              <button onClick={()=>setShowSwap(true)} onContextMenu={e=>e.preventDefault()}
                 style={{...btnStyle,background:"rgba(96,165,250,0.15)",border:"1.5px solid rgba(96,165,250,0.4)",borderRadius:8,padding:"7px 4px",color:"#60a5fa",fontSize:11}}>
                 🔄 SWAP<br/><span style={{fontSize:9,opacity:0.8}}>(costs turn)</span>
               </button>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();onEnd("flee",{...player,hp:player.battleHp/player.maxHp});}} onMouseDown={()=>onEnd("flee",{...player,hp:player.battleHp/player.maxHp})} onContextMenu={e=>e.preventDefault()}
+              <button onClick={()=>onEnd("flee",{...player,hp:player.battleHp/player.maxHp})} onContextMenu={e=>e.preventDefault()}
                 style={{...btnStyle,background:"rgba(100,116,139,0.15)",border:"1.5px solid rgba(100,116,139,0.4)",borderRadius:8,padding:"7px 4px",color:"#94a3b8",fontSize:11}}>
                 🏃 FLEE
               </button>
@@ -965,19 +965,12 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
             <div style={{color:"#f87171",fontSize:12,marginBottom:8,fontWeight:"bold"}}>💀 Your creature fainted! Choose next:</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {(battleInventory||[]).map((c,i)=>{
-                if(i===0||!c||(c.hp||0)<=0.05)return null;
+                if(i===0||!c||c.fainted||(c.hp||0)<=0.05)return null;
                 return(
                   <button key={i}
-                    onTouchStart={e=>{e.preventDefault();e.stopPropagation();
-                      onSwapToFront(i);
-                      const inc=battleInventory[i];
-                      const nb=makeBattler(inc);
-                      setPlayer(nb);setActiveCreature(inc);
-                      setParticipantIds(prev=>new Set([...prev,inc.id]));
-                      giveTurnBack();
-                      setLog(l=>[...l,"Go, new creature!"]);
-                    }}
-                    onMouseDown={()=>{
+                    
+                    onClick={()=>{
+                      onSaveBattleHp(0,0,player.maxHp);
                       onSwapToFront(i);
                       const inc=battleInventory[i];
                       const nb=makeBattler(inc);
@@ -1007,8 +1000,8 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
               {(battleInventory||[]).map((c,i)=>(
                 <button key={i}
-                  onTouchStart={e=>{e.preventDefault();e.stopPropagation();handleSwap(i);}}
-                  onMouseDown={()=>handleSwap(i)}
+                  
+                  onClick={()=>handleSwap(i)}
                   onContextMenu={e=>e.preventDefault()}
                   style={{...btnStyle,background:i===0?"rgba(255,255,255,0.05)":dnaColor(c.dna,15),border:`1.5px solid ${i===0?"#333":dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:i===0?"#475569":"#e2e8f0",fontSize:11,opacity:i===0?0.5:1,cursor:i===0?"default":"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",gap:5}}>
@@ -1022,7 +1015,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
                 </button>
               ))}
             </div>
-            <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();setShowSwap(false);}} onMouseDown={()=>setShowSwap(false)} onContextMenu={e=>e.preventDefault()}
+            <button onClick={()=>setShowSwap(false)} onContextMenu={e=>e.preventDefault()}
               style={{...btnStyle,background:"transparent",border:"1px solid #333",borderRadius:6,padding:"5px 12px",color:"#475569",fontSize:11}}>
               ← Back
             </button>
@@ -1068,6 +1061,7 @@ function DPad({inputRef}){
 
   return(
     <div ref={padRef}
+      
       onTouchStart={e=>{e.preventDefault();e.stopPropagation();const t=e.touches[0];applyTouch(t.clientX,t.clientY,true);}}
       onTouchMove={e=>{e.preventDefault();e.stopPropagation();const t=e.touches[0];applyTouch(t.clientX,t.clientY,true);}}
       onTouchEnd={e=>{e.preventDefault();e.stopPropagation();applyTouch(0,0,false);}}
@@ -1173,14 +1167,14 @@ function MapEditor({onDone}){
       <div style={{padding:"10px 14px",borderBottom:"1px solid #222",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
         <span style={{color:"#c8e6a0",fontSize:14,letterSpacing:"0.1em",textTransform:"uppercase"}}>🗺 Map Editor</span>
         <button
-          onTouchStart={e=>{e.preventDefault();e.stopPropagation();setMap(makeRandomMap());}}
+          
           onClick={()=>setMap(makeRandomMap())}
           onContextMenu={e=>e.preventDefault()}
           style={{marginLeft:"auto",background:"rgba(100,116,139,0.15)",border:"1.5px solid rgba(100,116,139,0.3)",borderRadius:8,color:"#94a3b8",padding:"7px 12px",fontFamily:"Georgia,serif",fontSize:13,cursor:"pointer",WebkitTapHighlightColor:"transparent",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}}>
           🎲 Random
         </button>
         <button
-          onTouchStart={e=>{e.preventDefault();e.stopPropagation();onDone(map);}}
+          
           onClick={()=>onDone(map)}
           onContextMenu={e=>e.preventDefault()}
           style={{background:"rgba(200,230,160,0.15)",border:"1.5px solid rgba(200,230,160,0.4)",borderRadius:8,color:"#c8e6a0",padding:"7px 14px",fontFamily:"Georgia,serif",fontSize:13,cursor:"pointer",WebkitTapHighlightColor:"transparent",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}}>
@@ -1195,7 +1189,7 @@ function MapEditor({onDone}){
           const sel=selectedTile===id;
           return(
             <button key={id}
-              onTouchStart={e=>{e.preventDefault();e.stopPropagation();setSelectedTile(id);}}
+              
               onClick={()=>setSelectedTile(id)}
               onContextMenu={e=>e.preventDefault()}
               style={{background:sel?t.topColor+"cc":"rgba(255,255,255,0.06)",border:`2px solid ${sel?t.topColor:"#2a2a2a"}`,borderRadius:8,padding:"5px 9px",color:sel?"#fff":"#888",fontFamily:"Georgia,serif",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",gap:4,WebkitTapHighlightColor:"transparent",touchAction:"none",userSelect:"none",WebkitUserSelect:"none",flexShrink:0}}>
@@ -1213,6 +1207,7 @@ function MapEditor({onDone}){
           onMouseMove={e=>{if(painting)paint(e);}}
           onMouseUp={()=>setPainting(false)}
           onMouseLeave={()=>setPainting(false)}
+          
           onTouchStart={e=>{e.preventDefault();e.stopPropagation();setPainting(true);paint(e);}}
           onTouchMove={e=>{e.preventDefault();e.stopPropagation();if(painting)paint(e);}}
           onTouchEnd={e=>{e.preventDefault();e.stopPropagation();setPainting(false);}}
@@ -1406,7 +1401,12 @@ export default function Homebase(){
     return()=>cancelAnimationFrame(animRef.current);
   },[screen,battle,dims,mapData]);
 
-  const togglePause=useCallback(()=>{pausedRef.current=!pausedRef.current;setUiState(u=>({...u,paused:!u.paused}));},[]);
+  const battleEndedAt=useRef(0);
+  const togglePause=useCallback(()=>{
+    if(Date.now()-battleEndedAt.current<600) return; // ignore a tap that started on the battle screen
+    pausedRef.current=!pausedRef.current;
+    setUiState(u=>({...u,paused:pausedRef.current}));
+  },[]);
   const handleCapture=useCallback(()=>{inputRef.current.capturePressed=true;},[]);
   const handleFight=useCallback(()=>{inputRef.current.fightPressed=true;},[]);
 
@@ -1423,15 +1423,35 @@ export default function Homebase(){
     if(!stateRef.current)return;
     const s=stateRef.current;
     const inv=[...s.inventory];
-    if(inv[idx]) inv[idx]={...inv[idx],battleHp,maxHp};
+    if(inv[idx]) inv[idx]={...inv[idx],battleHp,maxHp,hp:Math.max(0,battleHp/maxHp),fainted:battleHp<=0};
     stateRef.current={...s,inventory:inv};
+    setUiState(u=>({...u,inventory:inv})); // the battle's swap list reads this
   },[]);
 
-  const handleBattleEnd=useCallback((result,finalCreature)=>{
+  // After a battle: turn any mid-battle HP into bag HP, and remove creatures that fainted
+  const settleAfterBattle=(inv)=>inv
+    .filter(c=>!c.fainted)
+    .map(c=>c.battleHp!=null&&c.maxHp?{...c,hp:Math.max(0.05,c.battleHp/c.maxHp),battleHp:null}:c);
+
+  // Shared XP for creatures that fought but weren't out at the end
+  const giveXp=(c,xp)=>{
+    const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
+    const nxp=(c.xp||0)+xp, nl=Math.floor(nxp/need)+1;
+    let moves=c.moves||[];
+    if(nl>(c.level||1)){ const m=learnMoveAtLevel(c.dna,nl,moves); if(m) moves=moves.length<4?[...moves,m]:[moves[0],...moves.slice(2),m]; }
+    return {...c,xp:nxp,level:Math.max(c.level||1,nl),moves};
+  };
+
+  const handleBattleEnd=useCallback((result,finalCreature,partIds,xpEach)=>{
     const wasStarter=battleRef.current&&battleRef.current.isStarter;
     setBattle(null); battleRef.current=null;
+    battleEndedAt.current=Date.now();
     if(!stateRef.current)return;
-    const s=stateRef.current;
+    const s0=stateRef.current;
+    const lead=s0.inventory[0];
+    const rest=settleAfterBattle(s0.inventory.slice(1)).map(c=>
+      result==="win"&&xpEach&&partIds&&partIds.has&&partIds.has(c.id)?giveXp(c,xpEach):c);
+    const s={...s0,inventory:lead?[lead,...rest]:rest};
     if(wasStarter&&result==="win"){
       const starterHp = finalCreature.battleHp != null && finalCreature.maxHp
         ? Math.max(0.2, finalCreature.battleHp / finalCreature.maxHp)
@@ -1469,10 +1489,12 @@ export default function Homebase(){
     const endHp = playerBattleState?.battleHp != null && playerBattleState?.maxHp
       ? Math.max(0.05, playerBattleState.battleHp / playerBattleState.maxHp)
       : Math.max(0.05, s.inventory[0]?.hp || 0.05);
+    battleEndedAt.current=Date.now();
     const playerBack={...s.inventory[0], hp:endHp, battleHp:null};
-    const newInv=s.inventory.length<INVENTORY_MAX
-      ?[playerBack,...s.inventory.slice(1),{...capturedWild,moves:capturedWild.moves||deriveMoves(capturedWild.dna)}]
-      :[playerBack,...s.inventory.slice(1)];
+    const rest=settleAfterBattle(s.inventory.slice(1));
+    const newInv=1+rest.length<INVENTORY_MAX
+      ?[playerBack,...rest,{...capturedWild,moves:capturedWild.moves||deriveMoves(capturedWild.dna)}]
+      :[playerBack,...rest];
     stateRef.current={...s,inventory:newInv,creatures:s.creatures.map(c=>c.id===capturedWild.id?{...c,dead:true,deathReason:"captured"}:c)};
     setUiState(u=>({...u,inventory:stateRef.current.inventory}));
     saveNow();
@@ -1530,25 +1552,14 @@ export default function Homebase(){
       </div>
       <div style={{display:"flex",gap:12,flexDirection:"column",alignItems:"center",width:"100%",maxWidth:260}}>
         <button
-          onTouchStart={e=>{e.preventDefault();e.stopPropagation();setScreen("editor");setMapData(null);}}
+          
           onClick={()=>{setScreen("editor");setMapData(null);}}
           onContextMenu={e=>e.preventDefault()}
           style={{width:"100%",background:"rgba(248,113,113,0.15)",border:"1.5px solid rgba(248,113,113,0.4)",borderRadius:10,color:"#f87171",padding:"12px",fontFamily:"Georgia,serif",fontSize:14,cursor:"pointer",letterSpacing:"0.06em",WebkitTapHighlightColor:"transparent",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"}}>
           🗺 Rebuild Homebase
         </button>
         <button
-          onTouchStart={e=>{e.preventDefault();e.stopPropagation();
-            // Keep the map, just restart with a new starter
-            if(mapData){
-              const starterDNA=randomDNA();
-              const sc=Math.floor(COLS/2),sr=Math.floor(ROWS/2);
-              const starter={...makeCreature(sc,sr,starterDNA),level:1,hp:1.0};
-              stateRef.current={...stateRef.current,inventory:[starter],player:makePlayer(mapData)};
-              setUiState(u=>({...u,inventory:[starter]}));
-              setScreen("game");
-              setTimeout(saveNow,0);
-            }
-          }}
+          
           onClick={()=>{
             if(mapData){
               const starterDNA=randomDNA();
@@ -1597,21 +1608,21 @@ export default function Homebase(){
           <DPad inputRef={inputRef}/>
           <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
             <div style={{display:"flex",gap:8}}>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();handleFight();}} onMouseDown={handleFight} onContextMenu={e=>e.preventDefault()}
+              <button onClick={handleFight} onContextMenu={e=>e.preventDefault()}
                 style={{...btnBase,width:70,height:52,background:"rgba(239,68,68,0.15)",border:"2px solid rgba(239,68,68,0.45)",color:"#f87171",fontWeight:"bold",borderRadius:14,flexDirection:"column",gap:2}}>
                 <span style={{fontSize:18}}>⚔️</span><span style={{fontSize:10}}>FIGHT</span>
               </button>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();handleCapture();}} onMouseDown={handleCapture} onContextMenu={e=>e.preventDefault()}
+              <button onClick={handleCapture} onContextMenu={e=>e.preventDefault()}
                 style={{...btnBase,width:70,height:52,background:"rgba(251,191,36,0.15)",border:"2px solid rgba(251,191,36,0.45)",color:"#fbbf24",fontWeight:"bold",borderRadius:14,flexDirection:"column",gap:2}}>
                 <span style={{fontSize:18}}>⚡</span><span style={{fontSize:10}}>CATCH</span>
               </button>
             </div>
             <div style={{display:"flex",gap:8}}>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();openBag();}} onClick={openBag} onContextMenu={e=>e.preventDefault()}
+              <button onClick={openBag} onContextMenu={e=>e.preventDefault()}
                 style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1}}>
                 <span style={{fontSize:14}}>🎒</span><span style={{fontSize:9,color:"#86efac"}}>{uiState.inventory.length}/{INVENTORY_MAX}</span>
               </button>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();togglePause();}} onClick={togglePause} onContextMenu={e=>e.preventDefault()}
+              <button onClick={togglePause} onContextMenu={e=>e.preventDefault()}
                 style={{...btnBase,width:58,height:40}}>
                 {uiState.paused?"▶":"⏸"}
               </button>
