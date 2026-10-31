@@ -1275,11 +1275,19 @@ export default function Homebase(){
   const[battle,setBattle]=useState(null);
   const[showBag,setShowBag]=useState(false);
   const[selectedInv,setSelectedInv]=useState(null);
+  const[moveFrom,setMoveFrom]=useState(null); // bag slot being moved, or null
+  const swapSlots=(a,b)=>{
+    const s=stateRef.current; if(!s||a===b||!s.inventory[a]||!s.inventory[b]) return;
+    const inv=[...s.inventory]; [inv[a],inv[b]]=[inv[b],inv[a]];
+    stateRef.current={...s,inventory:inv}; setUiState(u=>({...u,inventory:inv}));
+  };
+  const openBag=()=>{ setShowBag(p=>!p); setSelectedInv(stateRef.current?.inventory.length?0:null); setMoveFrom(null); };
+  const closeBag=()=>{ setShowBag(false); setSelectedInv(null); setMoveFrom(null); };
 
   // Block selection
   useEffect(()=>{
     const kill=e=>e.preventDefault();
-    const killTs=e=>{if(!e.target.closest("button")&&e.target.tagName.toLowerCase()!=="canvas")e.preventDefault();};
+    const killTs=e=>{if(!e.target.closest("button")&&!e.target.closest("[data-scroll]")&&e.target.tagName.toLowerCase()!=="canvas")e.preventDefault();};
     document.addEventListener("selectstart",kill);
     document.addEventListener("contextmenu",kill);
     document.addEventListener("touchstart",killTs,{passive:false});
@@ -1561,7 +1569,7 @@ export default function Homebase(){
   );
 
   return(
-    <div style={{background:"#0e0e0e",height:"100%",width:"100vw",display:"flex",flexDirection:"column",overflow:"hidden",fontFamily:"Georgia,serif",userSelect:"none",touchAction:"none"}}>
+    <div style={{background:"#0e0e0e",height:"100%",width:"100vw",display:"flex",flexDirection:"column",overflow:"hidden",fontFamily:"Georgia,serif",userSelect:"none"}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 12px",flexShrink:0,background:"rgba(0,0,0,0.5)",borderBottom:"1px solid rgba(200,230,160,0.08)",height:36}}>
         <span style={{color:"#c8e6a0",fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase"}}>Homebase</span>
@@ -1575,7 +1583,7 @@ export default function Homebase(){
 
       {/* Canvas */}
       <div style={{position:"relative",flexShrink:0}}>
-        <canvas ref={canvasRef} width={dims.W} height={dims.H} style={{display:"block",width:"100%",height:dims.H}}/>
+        <canvas ref={canvasRef} width={dims.W} height={dims.H} style={{display:"block",width:"100%",height:dims.H,touchAction:"none"}}/>
         {uiState.paused&&!battle&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
             <span style={{color:"#c8e6a0",fontSize:22,letterSpacing:"0.22em",textTransform:"uppercase"}}>Paused</span>
@@ -1584,7 +1592,7 @@ export default function Homebase(){
       </div>
 
       {/* Controls */}
-      <div style={{flex:1,background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px max(12px, env(safe-area-inset-right, 0px)) max(28px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 0px))",gap:8,overflow:"hidden"}}>
+      <div style={{flex:1,touchAction:"none",background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px max(12px, env(safe-area-inset-right, 0px)) max(28px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 0px))",gap:8,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",flex:1}}>
           <DPad inputRef={inputRef}/>
           <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
@@ -1599,7 +1607,7 @@ export default function Homebase(){
               </button>
             </div>
             <div style={{display:"flex",gap:8}}>
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();setShowBag(p=>!p);setSelectedInv(null);}} onClick={()=>{setShowBag(p=>!p);setSelectedInv(null);}} onContextMenu={e=>e.preventDefault()}
+              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();openBag();}} onClick={openBag} onContextMenu={e=>e.preventDefault()}
                 style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1}}>
                 <span style={{fontSize:14}}>🎒</span><span style={{fontSize:9,color:"#86efac"}}>{uiState.inventory.length}/{INVENTORY_MAX}</span>
               </button>
@@ -1614,27 +1622,31 @@ export default function Homebase(){
 
       {/* Bag overlay */}
       {showBag&&(
-        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:100,display:"flex",flexDirection:"column",overflow:"auto",touchAction:"pan-y"}}>
+        <div data-scroll="" style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:100,display:"flex",flexDirection:"column",overflowY:"auto",WebkitOverflowScrolling:"touch",touchAction:"pan-y",overscrollBehavior:"contain"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"16px 16px 10px"}}>
             <span style={{color:"#c8e6a0",fontSize:15,letterSpacing:"0.12em",textTransform:"uppercase"}}>🎒 Bag <span style={{color:"#3a5228",fontSize:11}}>{uiState.inventory.length}/{INVENTORY_MAX}</span></span>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              {selectedInv!==null&&<span style={{color:"#60a5fa",fontSize:11}}>tap another to swap</span>}
-              <button onTouchStart={e=>{e.preventDefault();e.stopPropagation();setShowBag(false);setSelectedInv(null);}} onClick={()=>{setShowBag(false);setSelectedInv(null);}} onContextMenu={e=>e.preventDefault()}
+              <button onClick={closeBag} onContextMenu={e=>e.preventDefault()}
                 style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:8,color:"#94a3b8",fontSize:18,width:36,height:36,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",touchAction:"none",userSelect:"none",WebkitUserSelect:"none",WebkitTapHighlightColor:"transparent"}}>✕</button>
             </div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,padding:"0 16px",maxWidth:400,width:"100%",alignSelf:"center"}}>
+          {moveFrom!==null&&uiState.inventory[moveFrom]&&(
+            <div style={{margin:"0 16px 10px",maxWidth:400,alignSelf:"center",width:"calc(100% - 32px)",boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,background:"rgba(96,165,250,0.12)",border:"1px solid rgba(96,165,250,0.4)",borderRadius:10,padding:"9px 12px"}}>
+              <span style={{color:"#93c5fd",fontSize:12,flex:1}}>Tap the creature to trade places with</span>
+              <button onClick={()=>setMoveFrom(null)} style={{background:"transparent",border:"1px solid rgba(147,197,253,0.5)",borderRadius:8,color:"#93c5fd",fontFamily:"Georgia,serif",fontSize:12,padding:"6px 12px",cursor:"pointer"}}>Cancel</button>
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,padding:"0 16px",maxWidth:400,width:"100%",boxSizing:"border-box",alignSelf:"center"}}>
             {Array.from({length:INVENTORY_MAX}).map((_,i)=>{
               const c=uiState.inventory[i]; const isSel=selectedInv===i;
               return(
-                <div key={i}
-                  onTouchStart={e=>{e.preventDefault();e.stopPropagation();if(!c)return;if(selectedInv===null){setSelectedInv(i);}else if(selectedInv===i){setSelectedInv(null);}else{// Swap the two slots
-                    const s=stateRef.current;if(!s)return;
-                    const inv=[...s.inventory];const tmp=inv[selectedInv];inv[selectedInv]=inv[i];inv[i]=tmp;
-                    stateRef.current={...s,inventory:inv};setUiState(u=>({...u,inventory:inv}));setSelectedInv(null);}}}
-                  onClick={()=>{if(!c)return;if(selectedInv===null){setSelectedInv(i);}else if(selectedInv===i){setSelectedInv(null);}else{const s=stateRef.current;if(!s)return;const inv=[...s.inventory];const tmp=inv[selectedInv];inv[selectedInv]=inv[i];inv[i]=tmp;stateRef.current={...s,inventory:inv};setUiState(u=>({...u,inventory:inv}));setSelectedInv(null);}}}
+                <button key={i} disabled={!c}
+                  aria-label={c?"Lv"+(c.level||1)+" creature, slot "+(i+1):"Empty slot"}
+                  onClick={()=>{ if(!c) return;
+                    if(moveFrom!==null){ swapSlots(moveFrom,i); setSelectedInv(i); setMoveFrom(null); }
+                    else setSelectedInv(i); }}
                   onContextMenu={e=>e.preventDefault()}
-                  style={{aspectRatio:"1",borderRadius:10,background:c?dnaColor(c.dna,10):"#141414",border:`2px solid ${isSel?"#fbbf24":c?dnaColor(c.dna,30):"#1e1e1e"}`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",cursor:c?"pointer":"default",touchAction:"none",userSelect:"none",WebkitUserSelect:"none",boxShadow:isSel?`0 0 12px ${dnaColor(c&&c.dna,55,0.4)}`:"none"}}>
+                  style={{aspectRatio:"1",width:"100%",padding:0,borderRadius:10,background:c?dnaColor(c.dna,10):"#141414",border:`2px ${moveFrom!==null&&c&&i!==moveFrom?"dashed":"solid"} ${i===moveFrom?"#60a5fa":isSel?"#fbbf24":moveFrom!==null&&c?"rgba(96,165,250,0.55)":c?dnaColor(c.dna,30):"#1e1e1e"}`,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",cursor:c?"pointer":"default",userSelect:"none",WebkitUserSelect:"none",WebkitTapHighlightColor:"transparent",boxShadow:isSel?`0 0 12px ${dnaColor(c&&c.dna,55,0.4)}`:"none"}}>
                   {c&&(()=>{
                     // Check if compatible with any other bag creature
                     const compatible = uiState.inventory.some((o,oi) => oi!==i && o &&
@@ -1649,16 +1661,27 @@ export default function Homebase(){
                       <div style={{position:"absolute",top:3,right:5,color:"#fbbf24",fontSize:8,fontWeight:"bold"}}>L{c.level||1}</div>
                       {c.hp<1&&!readyToBreed&&<div style={{position:"absolute",top:3,left:5,fontSize:8}}>💤</div>}
                       {readyToBreed&&<div style={{position:"absolute",top:2,left:4,fontSize:9}}>💕</div>}
+                      {i===0&&<div style={{position:"absolute",bottom:9,left:0,right:0,textAlign:"center",color:"#fbbf24",fontSize:7,letterSpacing:"0.1em"}}>LEAD</div>}
                     </>;
                   })()}
-                </div>
+                </button>
               );
             })}
           </div>
           {selectedInv!==null&&uiState.inventory[selectedInv]&&(()=>{
             const c=uiState.inventory[selectedInv];
             return(
-              <div style={{margin:"12px 16px 0",maxWidth:400,alignSelf:"center",width:"calc(100% - 32px)",background:"#111",borderRadius:12,padding:"14px",border:`1px solid ${dnaColor(c.dna,30)}`}}>
+              <div style={{margin:"12px 16px 0",maxWidth:400,alignSelf:"center",width:"calc(100% - 32px)",boxSizing:"border-box",background:"#111",borderRadius:12,padding:"14px",border:`1px solid ${dnaColor(c.dna,30)}`}}>
+                <div style={{display:"flex",gap:8,marginBottom:12}}>
+                  <button disabled={selectedInv===0} onClick={()=>{swapSlots(selectedInv,0);setSelectedInv(0);setMoveFrom(null);}}
+                    style={{flex:1,background:selectedInv===0?"transparent":"rgba(251,191,36,0.12)",border:"1px solid "+(selectedInv===0?"#2a2a2a":"rgba(251,191,36,0.45)"),borderRadius:8,color:selectedInv===0?"#6b5a2a":"#fbbf24",fontFamily:"Georgia,serif",fontSize:12,padding:"8px",cursor:selectedInv===0?"default":"pointer"}}>
+                    {selectedInv===0?"★ Fights first":"★ Make lead"}
+                  </button>
+                  <button disabled={uiState.inventory.length<2} onClick={()=>setMoveFrom(moveFrom===selectedInv?null:selectedInv)}
+                    style={{flex:1,background:moveFrom===selectedInv?"rgba(96,165,250,0.2)":"rgba(96,165,250,0.08)",border:"1px solid rgba(96,165,250,0.45)",borderRadius:8,color:"#93c5fd",fontFamily:"Georgia,serif",fontSize:12,padding:"8px",cursor:"pointer",opacity:uiState.inventory.length<2?0.4:1}}>
+                    {moveFrom===selectedInv?"Cancel move":"↔ Move"}
+                  </button>
+                </div>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
                   <div style={{width:28,height:28,borderRadius:"50%",background:dnaColor(c.dna,55),boxShadow:`0 0 10px ${dnaColor(c.dna,55,0.5)}`,flexShrink:0}}/>
                   <div>
