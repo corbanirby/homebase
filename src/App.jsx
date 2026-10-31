@@ -1228,7 +1228,7 @@ export default function Homebase(){
 
   // Measure
   useEffect(()=>{
-    const CTRL=190,TOP=36;
+    const CTRL=214,TOP=36;
     const measure=()=>setDims({W:window.innerWidth,H:Math.max(160,window.innerHeight-CTRL-TOP-8)});
     measure();
     window.addEventListener("resize",measure);
@@ -1249,7 +1249,7 @@ export default function Homebase(){
   const handleMapDone=useCallback((map)=>{
     setMapData(map);
     setScreen("game");
-    const W=window.innerWidth, H=Math.max(160,window.innerHeight-190-36-8);
+    const W=window.innerWidth, H=Math.max(160,window.innerHeight-214-36-8);
     // Make starter creature
     const starterDNA=randomDNA();
     const sc=Math.floor(COLS/2), sr=Math.floor(ROWS/2);
@@ -1478,7 +1478,7 @@ export default function Homebase(){
       </div>
 
       {/* Controls */}
-      <div style={{flex:1,background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px 12px",gap:8,overflow:"hidden"}}>
+      <div style={{flex:1,background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px max(12px, env(safe-area-inset-right, 0px)) max(28px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 0px))",gap:8,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",flex:1}}>
           <DPad inputRef={inputRef}/>
           <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
