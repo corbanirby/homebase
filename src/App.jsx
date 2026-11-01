@@ -174,6 +174,74 @@ function crossDNA(a,b) {
     xpRate:m(((a.xpRate??1)+(b.xpRate??1))/2),
     hpRange:m(((a.hpRange??1)+(b.hpRange??1))/2) };
 }
+// ─── Species & sprites ────────────────────────────────────────────────────────
+// Each species has hand-made art for four life stages, eight directions each.
+// A creature shows as the species closest to its genes; with one species so far,
+// every creature is a Ramtarug.
+const SPECIES = {
+  ramtarug: { no:1, name:"Ramtarug", path:"sprites/ramtarug" },
+};
+const DIRS8 = ["east","south-east","south","south-west","west","north-west","north","north-east"];
+// Life stage by share of lifespan lived; scale shrinks the young since every
+// stage's art fills the same 96px frame.
+const STAGES = [
+  { id:"baby",       until:0.15, scale:0.6 },
+  { id:"adolescent", until:0.35, scale:0.8 },
+  { id:"adult",      until:0.80, scale:1.0 },
+  { id:"elder",      until:Infinity, scale:1.0 },
+];
+function lifeStage(c){
+  const f=(c.age||0)/(c.maxAge||1);
+  return STAGES.find(s=>f<s.until)||STAGES[3];
+}
+function speciesOf(c){ return SPECIES[c.species]||SPECIES.ramtarug; }
+const spriteCache={};
+let spriteListeners=new Set();
+function spriteImage(sp,stage,dir){
+  const key=`${sp.path}/${stage}/${dir}.png`;
+  let img=spriteCache[key];
+  if(!img){
+    img=new Image();
+    img.onload=()=>spriteListeners.forEach(f=>f());
+    img.src=(import.meta.env.BASE_URL||"/")+key;
+    spriteCache[key]=img;
+  }
+  return img.complete&&img.naturalWidth?img:null;
+}
+// Preload every stage and direction so sprites never pop in mid-game
+Object.values(SPECIES).forEach(sp=>STAGES.forEach(st=>DIRS8.forEach(d=>spriteImage(sp,st.id,d))));
+function useSpritesLoaded(){
+  const [,setV]=useState(0);
+  useEffect(()=>{const f=()=>setV(v=>v+1);spriteListeners.add(f);return()=>spriteListeners.delete(f);},[]);
+}
+// Facing from movement on the iso map; remembered while standing still
+const facingById=new Map();
+function facingOf(c){
+  const sx=(c.dcol-c.drow), sy=(c.dcol+c.drow)*(TH/TW);
+  if(Math.hypot(sx,sy)>0.004){
+    const a=Math.atan2(sy,sx);
+    const i=((Math.round(a/(Math.PI/4))%8)+8)%8;
+    facingById.set(c.id,DIRS8[i]);
+  }
+  return facingById.get(c.id)||"south-east";
+}
+function CreatureIcon({c,size=28,dir="south-east"}){
+  useSpritesLoaded();
+  const st=lifeStage(c), sp=speciesOf(c);
+  const img=spriteImage(sp,st.id,dir);
+  const px=Math.round(size*(0.75+0.25*st.scale));
+  return <div style={{width:size,height:size,display:"flex",alignItems:"flex-end",justifyContent:"center",flexShrink:0}}>
+    {img?<img src={img.src} alt={sp.name} width={px} height={px} style={{imageRendering:"pixelated",display:"block"}}/>:null}
+  </div>;
+}
+
+function SlotSprite({c}){
+  useSpritesLoaded();
+  const st=lifeStage(c), img=spriteImage(speciesOf(c),st.id,"south-east");
+  const w=Math.round((62+20*st.scale));
+  return img?<img src={img.src} alt="" style={{width:w+"%",imageRendering:"pixelated",display:"block",marginTop:-4,pointerEvents:"none"}}/>:null;
+}
+
 function dnaColor(dna,l=55,a=1) {
   const h=((dna.hue%360)+360)%360, s=Math.max(30,Math.min(100,dna.saturation));
   return `hsla(${h},${s}%,${l}%,${a})`;
@@ -206,9 +274,15 @@ function timeAgo(ts){
   const h=Math.round(m/60); if(h<24) return h+(h===1?" hour ago":" hours ago");
   const d=Math.round(h/24); return d+(d===1?" day ago":" days ago");
 }
+// Wild creatures that spawn into the world arrive at a random age, so every life stage shows up
+function makeWildCreature(col,row){
+  const c=makeCreature(col,row);
+  c.age=Math.floor(c.maxAge*(0.03+Math.random()*0.82));
+  return c;
+}
 function makeCreature(col,row,dna=null) {
   dna=dna||randomDNA();
-  return { id:nextId++, type:"creature", col, row, dna, moves:deriveMoves(dna),
+  return { id:nextId++, type:"creature", species:"ramtarug", col, row, dna, moves:deriveMoves(dna),
     age:0, maxAge:CREATURE_LIFESPAN_BASE*dna.lifespan,
     hunger:0.8+Math.random()*0.2, hp:1.0, level:1, xp:0,
     reproductionCooldown:Math.floor(REPRODUCE_COOLDOWN/(dna.reproRate??1)),
@@ -312,7 +386,7 @@ function simulate(state, tick, inputRef, map, W) {
     while(tries++<50){
       const c=Math.floor(Math.random()*COLS), r=Math.floor(Math.random()*ROWS);
       if(TILES[map[r][c]]?.passable && Math.hypot(c-pc,r-pr)>5){
-        creatures=[...creatures,makeCreature(c,r)];
+        creatures=[...creatures,makeWildCreature(c,r)];
         break;
       }
     }
@@ -534,30 +608,35 @@ function drawPlantIso(ctx,plant,canvasW,cam) {
 function drawCreatureIso(ctx,c,tick,canvasW,cam) {
   const {x,y}=isoProject(c.col,c.row,canvasW,cam);
   const ty=y-TH*2;
-  const r=8*c.dna.size;
-  const lr=c.age/c.maxAge;
+  const st=lifeStage(c), sp=speciesOf(c);
+  const img=spriteImage(sp,st.id,facingOf(c));
+  // Sprite height on the map: ~46px for an average adult, scaled by size gene and stage
+  const h=46*c.dna.size*st.scale;
+  const r=h*0.32;
+  const footY=ty+10;
   // Capturable glow
-  if(c.capturable){ctx.globalAlpha=0.2+Math.sin(tick*0.18)*0.12;ctx.strokeStyle="#fbbf24";ctx.lineWidth=2.5;ctx.setLineDash([4,3]);ctx.beginPath();ctx.arc(x,ty,r+6,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;}
+  if(c.capturable){ctx.globalAlpha=0.2+Math.sin(tick*0.18)*0.12;ctx.strokeStyle="#fbbf24";ctx.lineWidth=2.5;ctx.setLineDash([4,3]);ctx.beginPath();ctx.ellipse(x,footY-2,r*1.3,r*0.55,0,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1;}
   // Shadow
-  ctx.globalAlpha=0.25;ctx.fillStyle="#000";ctx.beginPath();ctx.ellipse(x,ty+r+2,r*0.8,r*0.3,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
-  // Body
-  const ll=55-lr*18;
-  ctx.fillStyle=dnaColor(c.dna,ll); ctx.beginPath(); ctx.arc(x,ty,r,0,Math.PI*2); ctx.fill();
-  ctx.strokeStyle=dnaColor(c.dna,ll-15); ctx.lineWidth=r*0.22;
-  ctx.beginPath(); ctx.arc(x,ty,r*0.6,0,Math.PI*2); ctx.stroke();
-  if(c.state==="combat"){ctx.globalAlpha=0.25+Math.sin(tick*0.4)*0.14;ctx.fillStyle="#ef4444";ctx.beginPath();ctx.arc(x,ty,r,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}
-  // Eyes
-  const eo=r*0.36;
-  ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(x-eo,ty-r*0.1,r*0.2,0,Math.PI*2);ctx.arc(x+eo,ty-r*0.1,r*0.2,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle="#111";ctx.beginPath();ctx.arc(x-eo+1,ty-r*0.1,r*0.11,0,Math.PI*2);ctx.arc(x+eo+1,ty-r*0.1,r*0.11,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=0.25;ctx.fillStyle="#000";ctx.beginPath();ctx.ellipse(x,footY-1,r*0.95,r*0.32,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+  // Body: species art, gentle bob while walking
+  const moving=Math.hypot(c.dcol,c.drow)>0.004;
+  const bob=moving?Math.round(Math.abs(Math.sin(tick*0.25+c.id))*1.5):0;
+  const top=footY-h-bob;
+  if(img){
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(img,Math.round(x-h/2),Math.round(top),Math.round(h),Math.round(h));
+    if(c.state==="combat"){ctx.globalAlpha=0.18+Math.sin(tick*0.4)*0.1;ctx.fillStyle="#ef4444";ctx.beginPath();ctx.ellipse(x,top+h*0.6,h*0.42,h*0.34,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}
+  } else {
+    ctx.fillStyle=dnaColor(c.dna,55);ctx.beginPath();ctx.arc(x,footY-r,r,0,Math.PI*2);ctx.fill();
+  }
   // HP bar
-  const bw=r*2,bh=2.5,bx=x-bw/2,by=ty-r-10;
+  const bw=Math.max(16,h*0.5),bh=2.5,bx=x-bw/2,by=top+h*0.08-6;
   ctx.fillStyle="rgba(0,0,0,0.5)";ctx.fillRect(bx,by,bw,bh);
   ctx.fillStyle=c.hp>.6?"#4ade80":c.hp>.3?"#facc15":"#f87171";ctx.fillRect(bx,by,bw*c.hp,bh);
   // Level
-  ctx.fillStyle="#fff";ctx.font=`bold ${Math.max(7,r*0.65)}px Georgia`;ctx.textAlign="center";
-  ctx.fillText("L"+(c.level||1),x,ty+r+9);ctx.textAlign="left";
-  if(c.capturable){ctx.font=`${r*0.85}px serif`;ctx.fillText("⚡",x-r*1.9,ty-r*0.2);}
+  ctx.fillStyle="#fff";ctx.font="bold 8px Georgia";ctx.textAlign="center";
+  ctx.fillText("L"+(c.level||1),x,footY+9);ctx.textAlign="left";
+  if(c.capturable){ctx.font="10px serif";ctx.fillText("⚡",x+bw/2+1,by+6);}
 }
 
 function drawPlayerIso(ctx,player,tick,canvasW,cam) {
@@ -628,22 +707,15 @@ function drawFloatsIso(ctx,floats,tick,canvasW,cam) {
 
 // ─── Battle components ────────────────────────────────────────────────────────
 function BattleSprite({creature,size=90,flipped=false,shake=false}){
-  const ref=useRef(null);
-  useEffect(()=>{
-    const c=ref.current;if(!c)return;
-    const ctx=c.getContext("2d");ctx.clearRect(0,0,size,size);
-    const cx=size/2,cy=size/2+8,r=size*0.3*creature.dna.size,dna=creature.dna;
-    if(flipped){ctx.save();ctx.translate(size,0);ctx.scale(-1,1);}
-    ctx.globalAlpha=0.2;ctx.fillStyle="#000";ctx.beginPath();ctx.ellipse(cx,cy+r+4,r*0.9,r*0.3,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
-    ctx.fillStyle=dnaColor(dna,55);ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();
-    ctx.strokeStyle=dnaColor(dna,40);ctx.lineWidth=r*0.22;ctx.beginPath();ctx.arc(cx,cy,r*0.6,0,Math.PI*2);ctx.stroke();
-    ctx.fillStyle=dnaColor(dna,70,0.5);
-    for(let i=0;i<3;i++){const a=(i/3)*Math.PI*2+dna.hue*0.017;ctx.beginPath();ctx.arc(cx+Math.cos(a)*r*0.45,cy+Math.sin(a)*r*0.45,r*0.18,0,Math.PI*2);ctx.fill();}
-    const eo=r*0.35;ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(cx-eo,cy-r*0.12,r*0.22,0,Math.PI*2);ctx.arc(cx+eo,cy-r*0.12,r*0.22,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="#111";ctx.beginPath();ctx.arc(cx-eo+1,cy-r*0.12,r*0.13,0,Math.PI*2);ctx.arc(cx+eo+1,cy-r*0.12,r*0.13,0,Math.PI*2);ctx.fill();
-    if(flipped)ctx.restore();
-  },[creature,size,flipped]);
-  return <canvas ref={ref} width={size} height={size} style={{imageRendering:"pixelated",filter:shake?"brightness(1.6) saturate(1.5)":"none",transition:"filter 0.08s"}}/>;
+  useSpritesLoaded();
+  // Wild foe faces the player (front three-quarter); yours is seen from behind
+  const st=lifeStage(creature), sp=speciesOf(creature);
+  const img=spriteImage(sp,st.id,flipped?"south-west":"north-east");
+  const px=Math.round(size*Math.min(1.25,Math.max(0.75,creature.dna.size))*(0.55+0.45*st.scale));
+  return <div style={{width:size,height:size,display:"flex",alignItems:"flex-end",justifyContent:"center",position:"relative"}}>
+    <div style={{position:"absolute",bottom:2,width:px*0.7,height:px*0.16,borderRadius:"50%",background:"rgba(0,0,0,0.25)"}}/>
+    {img?<img src={img.src} alt={sp.name} width={px} height={px} style={{imageRendering:"pixelated",position:"relative",filter:shake?"brightness(1.6) saturate(1.5)":"none",transition:"filter 0.08s"}}/>:null}
+  </div>;
 }
 
 function HpBar({current,max,label,level}){
@@ -675,7 +747,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
   const[player,setPlayer]=useState(()=>makeBattler(playerCreature));
   const[enemy,setEnemy]=useState(()=>makeBattler(wildCreature));
   const[activeCreature,setActiveCreature]=useState(playerCreature); // tracks sprite
-  const[log,setLog]=useState(["A wild Lv"+(wildCreature.level||1)+" creature appeared!"]);
+  const[log,setLog]=useState(["A wild Lv"+(wildCreature.level||1)+" "+speciesOf(wildCreature).name+" appeared!"]);
   const[shakeP,setShakeP]=useState(false);
   const[shakeE,setShakeE]=useState(false);
   const[pending,setPending]=useState(null);
@@ -905,14 +977,14 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
           <HpBar current={enemy.battleHp} max={enemy.maxHp} label="Wild" level={enemy.level}/>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
             <StatusBadge status={enemy.status}/>
-            <BattleSprite creature={wildCreature} size={88} flipped={true} shake={shakeE}/>
+            <BattleSprite creature={wildCreature} size={120} flipped={true} shake={shakeE}/>
           </div>
         </div>
         <div style={{textAlign:"center",color:"rgba(255,255,255,0.07)",fontSize:26,letterSpacing:8}}>— vs —</div>
         <div style={{display:"flex",justifyContent:"flex-start",alignItems:"flex-end",gap:12}}>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
             <StatusBadge status={player.status}/>
-            <BattleSprite creature={activeCreature} size={88} shake={shakeP}/>
+            <BattleSprite creature={activeCreature} size={120} shake={shakeP}/>
           </div>
           <HpBar current={player.battleHp} max={player.maxHp} label="Yours" level={player.level}/>
         </div>
@@ -982,7 +1054,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
                     onContextMenu={e=>e.preventDefault()}
                     style={{...btnStyle,background:dnaColor(c.dna,15),border:`1.5px solid ${dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:"#e2e8f0",fontSize:11}}>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
-                      <div style={{width:10,height:10,borderRadius:"50%",background:dnaColor(c.dna,55)}}/>
+                      <CreatureIcon c={c} size={22}/>
                       <span>Lv{c.level||1}</span>
                     </div>
                     <div style={{width:50,height:3,background:"#222",borderRadius:2,marginTop:3}}>
@@ -1005,7 +1077,7 @@ function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInvento
                   onContextMenu={e=>e.preventDefault()}
                   style={{...btnStyle,background:i===0?"rgba(255,255,255,0.05)":dnaColor(c.dna,15),border:`1.5px solid ${i===0?"#333":dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:i===0?"#475569":"#e2e8f0",fontSize:11,opacity:i===0?0.5:1,cursor:i===0?"default":"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <div style={{width:10,height:10,borderRadius:"50%",background:dnaColor(c.dna,55),flexShrink:0}}/>
+                    <CreatureIcon c={c} size={22}/>
                     <span>Lv{c.level||1}</span>
                     {i===0&&<span style={{fontSize:9,color:"#475569"}}>(active)</span>}
                   </div>
@@ -1323,7 +1395,7 @@ export default function Homebase(){
     let tries=0;
     while(wildCreatures.length<20&&tries++<400){
       const c=Math.floor(Math.random()*COLS), r=Math.floor(Math.random()*ROWS);
-      if(TILES[map[r][c]]?.passable&&Math.hypot(c-sc,r-sr)>4) wildCreatures.push(makeCreature(c,r));
+      if(TILES[map[r][c]]?.passable&&Math.hypot(c-sc,r-sr)>4) wildCreatures.push(makeWildCreature(c,r));
     }
     const wildPlants=[];
     tries=0;
@@ -1518,7 +1590,7 @@ export default function Homebase(){
           <div style={{color:"#4a6a32",fontSize:10,letterSpacing:"0.14em",textTransform:"uppercase"}}>Saved world · {timeAgo(saveInfo.savedAt)}</div>
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
             {inv.slice(0,INVENTORY_MAX).map(c=>(
-              <div key={c.id} title={"Lv"+(c.level||1)} style={{width:26,height:26,borderRadius:"50%",background:dnaColor(c.dna,55),boxShadow:"0 0 8px "+dnaColor(c.dna,55,0.4),display:"flex",alignItems:"center",justifyContent:"center",color:"#0e0e0e",fontSize:9,fontWeight:"bold"}}>{c.level||1}</div>
+              <div key={c.id} title={"Lv"+(c.level||1)} style={{position:"relative"}}><CreatureIcon c={c} size={30}/><span style={{position:"absolute",right:-2,bottom:-2,color:"#fbbf24",fontSize:8,fontWeight:"bold"}}>{c.level||1}</span></div>
             ))}
           </div>
           <div style={{display:"flex",justifyContent:"space-between",color:"#7a8a6a",fontSize:12,fontVariantNumeric:"tabular-nums"}}>
@@ -1665,7 +1737,7 @@ export default function Homebase(){
                       Math.abs((((c.dna.hue-o.dna.hue)+540)%360)-180) <= BREED_HUE_COMPAT);
                     const readyToBreed = compatible && (c.breedCooldown??BREED_TICKS)===0 && c.hp>=0.5;
                     return <>
-                      <div style={{width:"54%",height:"54%",borderRadius:"50%",background:dnaColor(c.dna,55),boxShadow:`0 0 10px ${dnaColor(c.dna,55,0.5)}`}}/>
+                      <SlotSprite c={c}/>
                       <div style={{position:"absolute",bottom:4,left:5,right:5,height:3,background:"#222",borderRadius:2}}>
                         <div style={{width:`${Math.max(0,c.hp)*100}%`,height:"100%",background:c.hp>.5?"#4ade80":c.hp>.25?"#facc15":"#f87171",borderRadius:2,transition:"width 1s"}}/>
                       </div>
@@ -1694,9 +1766,9 @@ export default function Homebase(){
                   </button>
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                  <div style={{width:28,height:28,borderRadius:"50%",background:dnaColor(c.dna,55),boxShadow:`0 0 10px ${dnaColor(c.dna,55,0.5)}`,flexShrink:0}}/>
+                  <CreatureIcon c={c} size={44}/>
                   <div>
-                    <div style={{color:"#e2e8f0",fontSize:13,fontWeight:"bold"}}>Lv{c.level||1} Creature</div>
+                    <div style={{color:"#e2e8f0",fontSize:13,fontWeight:"bold"}}>Lv{c.level||1} {speciesOf(c).name} <span style={{color:"#94a3b8",fontWeight:"normal",fontSize:11}}>· {({baby:"Baby",adolescent:"Adolescent",adult:"Adult",elder:"Elder"})[lifeStage(c).id]}</span></div>
                     <div style={{color:"#475569",fontSize:10}}>XP: {c.xp||0} / {Math.floor((c.level||1)*100*(c.dna.xpRate??1))}</div>
                     {c.hp<1&&<div style={{color:"#4ade80",fontSize:10}}>💤 Resting — HP recovering</div>}
                   {(()=>{
