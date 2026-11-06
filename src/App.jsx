@@ -514,10 +514,19 @@ export default function Homebase(){
           </div>
         )}
         <canvas ref={canvasRef} style={{display:"block",width:"100%",height:dims.H,touchAction:"none"}}/>
-        {showSeeds&&!battle&&(
-          <div style={{position:"absolute",left:6,right:6,bottom:6,zIndex:6,background:"rgba(12,16,10,0.92)",border:"1px solid rgba(134,239,172,0.3)",borderRadius:10,padding:"8px",display:"flex",flexDirection:"column",gap:6}}>
+        {uiState.paused&&!battle&&(
+          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <span style={{color:"#c8e6a0",fontSize:22,letterSpacing:"0.22em",textTransform:"uppercase"}}>Paused</span>
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div style={{flex:1,position:"relative",touchAction:"none",background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px max(12px, env(safe-area-inset-right, 0px)) max(28px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 0px))",gap:8,overflow:"hidden"}}>
+          {showSeeds&&!battle&&(
+          <div style={{position:"absolute",left:158,right:"max(8px, env(safe-area-inset-right, 0px))",top:8,bottom:"max(24px, calc(env(safe-area-inset-bottom, 0px) + 8px))",zIndex:6,background:"#0c100a",border:"1px solid rgba(134,239,172,0.3)",borderRadius:10,padding:"7px 8px",display:"flex",flexDirection:"column",gap:5,overflow:"hidden",touchAction:"manipulation"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{color:"#c8e6a0",fontSize:12,letterSpacing:"0.08em"}}>Seeds · plant in front of you</span>
+              <span style={{color:"#c8e6a0",fontSize:12,letterSpacing:"0.08em"}}>Seeds</span>
               <button onClick={()=>setShowSeeds(false)} aria-label="Close seeds" style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
             </div>
             {Object.entries(PLANT_SPECIES).map(([id,sp])=>{
@@ -531,25 +540,16 @@ export default function Homebase(){
                     <div style={{color:good?(f.fit>=0.45?"#86efac":"#facc15"):"#f87171",fontSize:10}}>{f?f.word:"–"}</div>
                   </div>
                   <button onClick={()=>plantSeed(id)} disabled={!n||!good}
-                    style={{...btnBase,width:64,height:30,fontSize:11,opacity:n&&good?1:0.4,background:"rgba(134,239,172,0.12)",border:"1.5px solid rgba(134,239,172,0.4)",color:"#d1fae5"}}>Plant</button>
+                    style={{...btnBase,width:54,height:30,fontSize:11,opacity:n&&good?1:0.4,background:"rgba(134,239,172,0.12)",border:"1.5px solid rgba(134,239,172,0.4)",color:"#d1fae5"}}>Plant</button>
                 </div>
               );
             })}
             <button onClick={gatherSeeds} disabled={!uiState.garden?.gather}
               style={{...btnBase,height:30,fontSize:11,opacity:uiState.garden?.gather?1:0.4}}>
-              {uiState.garden?.gather?`Gather seeds from ${uiState.garden.gather}`:"Stand next to a full-grown plant to gather seeds"}
+              {uiState.garden?.gather?`Gather ${uiState.garden.gather} seeds`:"Gather (stand by a grown plant)"}
             </button>
           </div>
         )}
-        {uiState.paused&&!battle&&(
-          <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <span style={{color:"#c8e6a0",fontSize:22,letterSpacing:"0.22em",textTransform:"uppercase"}}>Paused</span>
-          </div>
-        )}
-      </div>
-
-      {/* Controls */}
-      <div style={{flex:1,touchAction:"none",background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px max(12px, env(safe-area-inset-right, 0px)) max(28px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 0px))",gap:8,overflow:"hidden"}}>
         <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",flex:1}}>
           <DPad inputRef={inputRef}/>
           <div style={{display:"flex",flexDirection:"column",gap:8,alignItems:"flex-end"}}>
