@@ -1,9 +1,9 @@
-import { COLS, ROWS, MAX_CREATURES, MAX_PLANTS, PLANT_SPAWN_INTERVAL, HUNGER_RATE, REPRODUCE_COOLDOWN,
+import { COLS, ROWS, MAX_CREATURES, HUNGER_RATE, REPRODUCE_COOLDOWN,
   REPRODUCE_HUNGER_MIN, PLANT_ENERGY, PLAYER_SPEED, CAPTURE_DIST, COMBAT_BASE_DAMAGE, TERRITORY_RADIUS,
   INVENTORY_MAX, HEAL_RATE, PATH_SPEED_BONUS, BREED_TICKS, BREED_HUE_COMPAT, BREED_MIN_LEVEL, BREED_MAX_BAG } from "../config.js";
 import { newId } from "../engine/ids.js";
 import { isPassable, isFast } from "../world/tiles.js";
-import { makeCreature, makeWildCreature, makePlant } from "../creatures/factory.js";
+import { makeCreature, makeWildCreature } from "../creatures/factory.js";
 import { crossDNA } from "../creatures/dna.js";
 import { deriveMoves } from "../battle/moves.js";
 
@@ -12,16 +12,12 @@ export function simulate(state, tick, inputRef, map) {
   let {creatures,plants,player,inventory,events,floats} = state;
   const newEvents=[]; let newFloats=floats.filter(f=>tick-f.tick<45);
 
-  // Plants grow
-  plants=plants.map(p=>{const ns=Math.min(p.maxSize,p.size+p.growthRate);return{...p,size:ns,energy:ns/p.maxSize};}).filter(p=>!p.dead);
-  if (tick%PLANT_SPAWN_INTERVAL===0&&plants.length<MAX_PLANTS) {
-    let tries=0; while(tries++<20){const c=Math.floor(Math.random()*COLS)+0.5,r=Math.floor(Math.random()*ROWS)+0.5;if(isPassable(map,c,r)){plants=[...plants,makePlant(c,r)];break;}}
-  }
-
   // Player movement (each axis separately, so you slide along water and trees)
   let {col:pc,row:pr,facing,moveAnim}=player;
   const {dx:idx,dy:idy,capturePressed}=inputRef.current;
-  const spd=PLAYER_SPEED*(isFast(map,pc,pr+0.25)?PATH_SPEED_BONUS:1);
+  // Soft collision: pushing through a creature slows you a little but never blocks you
+  const pushing=creatures.some(c=>!c.dead&&Math.hypot(c.col-pc,c.row-pr)<0.55);
+  const spd=PLAYER_SPEED*(isFast(map,pc,pr+0.25)?PATH_SPEED_BONUS:1)*(pushing?0.7:1);
   const nc=Math.max(0.3,Math.min(COLS-0.3,pc+idx*spd));
   if(isPassable(map,nc,pr+0.25)) pc=nc;
   const nr=Math.max(0.3,Math.min(ROWS-0.1,pr+idy*spd));
@@ -77,6 +73,8 @@ export function simulate(state, tick, inputRef, map) {
     if(hunger<=0){newEvents.push({type:"death",reason:"hunger",col,row,tick});return{...c,dead:true};}
     if(hp<=0){newEvents.push({type:"death",reason:"combat",col,row,tick});return{...c,dead:true};}
     hunger=Math.max(0,hunger-HUNGER_RATE*(dna.metabolism??1));
+    // Nibbling the grass and reeds they walk through keeps them going between real meals
+    { const t=map[Math.floor(row)]?.[Math.floor(col)]; if(t==="grass"||t==="flower"||t==="reeds"||t==="marsh") hunger=Math.min(1,hunger+HUNGER_RATE*0.9); }
     capturable=hp<0.35;
     if(cs!=="combat"&&hp<1.0) hp=Math.min(1.0,hp+0.0006);
     const lp=plants.filter(p=>!p.dead&&p.energy>0.2);
@@ -94,7 +92,7 @@ export function simulate(state, tick, inputRef, map) {
     }
     if(ns==="combat"){const e=living.find(o=>o.id===nt&&!o.dead);if(!e||Math.hypot(e.col-col,e.row-row)>TERRITORY_RADIUS*1.5){ns="wander";nt=null;}else{const d=Math.hypot(e.col-col,e.row-row);if(d>0.8){dcol=((e.col-col)/d)*spd*1.2;drow=((e.row-row)/d)*spd*1.2;}else{if(combatTimer===0){newEvents.push({type:"hit",targetId:e.id,damage:COMBAT_BASE_DAMAGE*dna.strength,col:e.col,row:e.row,tick});combatTimer=18;}dcol*=0.5;drow*=0.5;}}}
     if(ns==="seek"){const t=plants.find(p=>p.id===nt&&!p.dead);if(!t||t.energy<0.1){ns="wander";nt=null;}else{const d=Math.hypot(t.col-col,t.row-row);if(d<0.5){ns="eat";}else{dcol=((t.col-col)/d)*spd;drow=((t.row-row)/d)*spd;}}}
-    if(ns==="eat"){const t=plants.find(p=>p.id===nt&&!p.dead);if(!t||t.energy<0.05){ns="wander";nt=null;}else{hunger=Math.min(1,hunger+Math.min(PLANT_ENERGY,1-hunger));const pi=plants.findIndex(p=>p.id===nt);if(pi!==-1)plants=plants.map((p,i)=>i===pi?{...p,size:Math.max(0.05,p.size-0.25),energy:Math.max(0,p.energy-0.4)}:p);if(hunger>=0.95){ns="wander";nt=null;}}}
+    if(ns==="eat"){const t=plants.find(p=>p.id===nt&&!p.dead);if(!t||t.energy<0.05){ns="wander";nt=null;}else{hunger=Math.min(1,hunger+Math.min(PLANT_ENERGY,1-hunger));const pi=plants.findIndex(p=>p.id===nt);if(pi!==-1)plants=plants.map((p,i)=>i===pi?{...p,energy:Math.max(0,p.energy-0.4)}:p);if(hunger>=0.95){ns="wander";nt=null;}}}
     if(ns==="reproduce"){const p2=living.find(o=>o.id===nt);if(!p2||p2.dead||Math.hypot(p2.col-col,p2.row-row)>4){ns="wander";nt=null;}else if(reproductionCooldown===0){const child=makeCreature(col+(Math.random()-0.5)*0.5,row+(Math.random()-0.5)*0.5,crossDNA(dna,p2.dna));newBorn.push(child);newEvents.push({type:"birth",col:child.col,row:child.row,tick});reproductionCooldown=Math.floor(REPRODUCE_COOLDOWN/(dna.reproRate??1));hunger=Math.max(0.1,hunger-0.3);ns="wander";nt=null;}}
     if(ns==="wander"){wanderTimer--;if(wanderTimer<=0){dcol=(Math.random()-0.5)*spd*2;drow=(Math.random()-0.5)*spd*2;wanderTimer=30+Math.random()*60;}}
     // Step, turning back at water, trees and the edge of the homebase
@@ -153,8 +151,32 @@ export function simulate(state, tick, inputRef, map) {
   }
   const finalInv = breedBaby ? [...healedInv, breedBaby] : healedInv;
 
+  // Soft collision: creatures step aside from you (shy ones more) and keep a little space from each other
+  let crowd=damaged.map(c=>{
+    if(c.dead) return c;
+    let {col,row}=c;
+    const dx=col-pc, dy=row-pr, d=Math.hypot(dx,dy);
+    if(d<0.7&&d>0.0001){
+      const shove=(0.7-d)*(0.25+(1-(c.dna.aggression??0.5))*0.35);
+      const nx=col+dx/d*shove, ny=row+dy/d*shove;
+      if(isPassable(map,nx,row)) col=nx;
+      if(isPassable(map,col,ny)) row=ny;
+    }
+    return col===c.col&&row===c.row?c:{...c,col,row};
+  });
+  for(let i=0;i<crowd.length;i++) for(let j=i+1;j<crowd.length;j++){
+    const a=crowd[i], b=crowd[j]; if(a.dead||b.dead) continue;
+    const dx=b.col-a.col, dy=b.row-a.row, d=Math.hypot(dx,dy);
+    if(d<0.5&&d>0.0001){
+      const k=(0.5-d)*0.25, ux=dx/d*k, uy=dy/d*k;
+      if(isPassable(map,a.col-ux,a.row-uy)) crowd[i]={...a,col:a.col-ux,row:a.row-uy};
+      if(isPassable(map,b.col+ux,b.row+uy)) crowd[j]={...b,col:b.col+ux,row:b.row+uy};
+    }
+  }
+
   return {
-    creatures:[...damaged.filter(c=>!c.dead),...newBorn],
+    ...state, // keep everything this step doesn't touch (seeds, and more in later stages)
+    creatures:[...crowd.filter(c=>!c.dead),...newBorn],
     plants, player:{...player,col:pc,row:pr,facing,moveAnim},
     inventory:finalInv, events:[...events.slice(-30),...newEvents], floats:newFloats, tick,
   };

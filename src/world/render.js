@@ -142,12 +142,16 @@ export function cameraFor(player, W, H) {
 }
 
 // ─── Drawing ──────────────────────────────────────────────────────────────────
-export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, land = null) {
+export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, land = null, target = null) {
   const cam = cameraFor(state.player, W, H);
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#0e0e0e"; ctx.fillRect(0, 0, W, H);
   ctx.drawImage(ground, -cam.x, -cam.y);
   if (overlay && land) drawOverlay(ctx, overlay, land, cam, W, H);
+  if (target) { // the patch you'd plant in
+    ctx.strokeStyle = "rgba(190,255,190,0.85)"; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+    ctx.strokeRect(target.c * TS - cam.x + 2, target.r * TS - cam.y + 2, TS - 4, TS - 4); ctx.setLineDash([]);
+  }
 
   // Everything upright is sorted by where it touches the ground, back to front
   const items = [];
@@ -203,13 +207,24 @@ function drawReeds(ctx, c, r, cam) {
   ctx.drawImage(REEDS[(c * 7 + r * 3) % 3], x, y + TS - 36, TS, 36);
 }
 function drawPlant(ctx, p, cam) {
-  const x = Math.round(p.col * TS - cam.x), y = Math.round(p.row * TS - cam.y);
-  const s = Math.max(3, Math.round(4 + p.size * 7));
-  const hue = p.hue;
-  ctx.fillStyle = `hsl(${hue},45%,26%)`; ctx.fillRect(x - s, y - s + 2, s * 2, s);
-  ctx.fillStyle = `hsl(${hue},50%,36%)`; ctx.fillRect(x - s + 2, y - s - 1, s * 2 - 4, s);
-  ctx.fillStyle = `hsl(${hue},55%,50%)`; ctx.fillRect(x - s + 4, y - s - 1, Math.max(2, s - 4), 2);
-  if (p.energy > 0.7) { ctx.fillStyle = "#e05a6a"; ctx.fillRect(x - 2, y - s + 2, 2, 2); ctx.fillRect(x + 3, y - s + 4, 2, 2); }
+  const x = Math.round(p.col * TS - cam.x), y = Math.round(p.row * TS - cam.y + 8);
+  const px = (dx, dy, w, h, col) => { ctx.fillStyle = col; ctx.fillRect(x + dx * 2, y + dy * 2, w * 2, h * 2); };
+  if (p.stage === 0) { px(-3, -1, 6, 1, "#6b4a2c"); px(-2, -2, 4, 1, "#7f5a36"); px(0, -2, 1, 1, "#c8a46a"); return; } // a seed in a little mound of soil
+  if (p.stage === 1) { px(-1, -2, 1, 2, "#7fc26a"); px(0, -3, 1, 3, "#94d47a"); return; } // sprout
+  const full = p.stage === 3 ? 0.5 + p.energy * 0.5 : 0.55;
+  if (p.species === "cattail") {
+    const n = p.stage === 3 ? 5 : 3, h = Math.round((p.stage === 3 ? 11 : 6) * full);
+    for (let i = 0; i < n; i++) {
+      const dx = -3 + Math.round(i * 6 / Math.max(1, n - 1)), hh = h - (i % 2) * 2;
+      px(dx, -hh, 1, hh, i % 2 ? "#5f8f3a" : "#77a64a");
+      if (p.stage === 3 && i % 2 === 0 && p.energy > 0.3) px(dx, -hh - 2, 1, 3, "#7a4a28");
+    }
+  } else { // bog moss: a soft cushion that swells as it grows
+    const w = Math.round((p.stage === 3 ? 6 : 4) * full) + 1;
+    px(-w, -2, w * 2, 2, "#4f7f2e"); px(-w + 1, -3, w * 2 - 2, 1, "#6a9f3c"); px(-w + 2, -4, Math.max(1, w * 2 - 4), 1, "#8cc152");
+    if (p.stage === 3 && p.energy > 0.5) { px(-2, -5, 1, 1, "#d0503c"); px(2, -5, 1, 1, "#d0503c"); }
+  }
+  if (p.health < 0.6) { ctx.globalAlpha = 0.35; ctx.fillStyle = "#8a6a3a"; ctx.fillRect(x - 10, y - 20, 20, 20); ctx.globalAlpha = 1; }
 }
 function drawCreature(ctx, c, tick, cam) {
   const x = c.col * TS - cam.x, footY = c.row * TS - cam.y + 6;

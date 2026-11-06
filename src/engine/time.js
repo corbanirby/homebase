@@ -3,7 +3,7 @@ import { TICK_MS, MAX_CATCHUP_MS, HEAL_RATE, BREED_TICKS } from "../config.js";
 // ─── Catch-up ─────────────────────────────────────────────────────────────────
 // Runs when you come back after the game was closed or hidden. Instead of
 // replaying every step, each system works out where it would be now.
-// Stage 0 covers resting and plant growth; later stages add aging, hunger,
+// This covers resting; plants and land have their own catch-up; later stages add aging, hunger,
 // eggs and births, each as its own step here.
 export function catchUp(state, awayMs) {
   const ms = Math.max(0, Math.min(awayMs, MAX_CATCHUP_MS));
@@ -17,18 +17,10 @@ export function catchUp(state, awayMs) {
     return { ...c, hp, breedCooldown: Math.max(0, (c.breedCooldown ?? BREED_TICKS) - ticks) };
   });
 
-  let grown = 0;
-  const plants = state.plants.map(p => {
-    const size = Math.min(p.maxSize, p.size + p.growthRate * ticks);
-    if (size > p.size + 0.01) grown++;
-    return { ...p, size, energy: size / p.maxSize };
-  });
-
   const lines = [];
   if (healed) lines.push(`${healed} ${healed === 1 ? "creature" : "creatures"} in your bag rested back to full health`);
-  if (grown) lines.push(`${grown} ${grown === 1 ? "plant" : "plants"} grew`);
   const report = { awayMs: ms, lines };
-  return { state: { ...state, inventory, plants }, report };
+  return { state: { ...state, inventory }, report };
 }
 
 export function formatDuration(ms) {

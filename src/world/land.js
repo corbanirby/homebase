@@ -65,7 +65,7 @@ export function deriveMap(land) {
 
 // Wetness and temperature each patch settles toward: water soaks nearby ground,
 // trees shade and hold moisture, worn ground dries out.
-function baseConditions(land) {
+function baseConditions(land, effects = null) {
   const dist = Array.from({ length: ROWS }, () => Array(COLS).fill(99));
   const q = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (land.cells[r][c].water) { dist[r][c] = 0; q.push([c, r]); }
@@ -85,6 +85,7 @@ function baseConditions(land) {
     if (cell.veg >= 3) { wet += 0.05; temp -= 0.05; }
     if (cell.trample >= PATH_AT) wet -= 0.06;
     if (cell.soil === "sandy") wet -= 0.1;
+    if (effects) wet += effects[r][c]; // wetland plants hold water in the ground
     return { wet: Math.max(0, Math.min(0.95, wet)), temp: Math.max(0, Math.min(1, temp)) };
   };
 }
@@ -161,18 +162,18 @@ export function landFromMap(map) {
 
 // ─── Change over time ─────────────────────────────────────────────────────────
 // Advance the land by `ms` of real time. Returns how many patches changed in each way.
-export function growLand(land, ms) {
+export function growLand(land, ms, effects = null) {
   const stats = { grew: 0, thinned: 0, pathsFaded: 0 };
   if (ms <= 0) return stats;
   // Long absences are worked through in 6-hour slices, so slow changes like
   // spreading forest happen at the same pace whether you were here or not
   if (ms > GROW_MS) {
     let left = ms;
-    while (left > 0) { const part = growLand(land, Math.min(GROW_MS, left)); left -= GROW_MS;
+    while (left > 0) { const part = growLand(land, Math.min(GROW_MS, left), effects); left -= GROW_MS;
       stats.grew += part.grew; stats.thinned += part.thinned; stats.pathsFaded += part.pathsFaded; }
     return stats;
   }
-  const base = baseConditions(land);
+  const base = baseConditions(land, effects);
   const growSteps = ms / GROW_MS, fadeSteps = ms / TRAMPLE_FADE_MS;
   const chance = x => { const whole = Math.floor(x); return whole + (Math.random() < x - whole ? 1 : 0); };
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {

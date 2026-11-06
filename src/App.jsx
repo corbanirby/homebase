@@ -7,7 +7,8 @@ import { isPassable } from "./world/tiles.js";
 import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./world/land.js";
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
 import { randomDNA, dnaColor } from "./creatures/dna.js";
-import { makeCreature, makeWildCreature, makePlant, makePlayer } from "./creatures/factory.js";
+import { makeCreature, makeWildCreature, makePlayer } from "./creatures/factory.js";
+import { PLANT_SPECIES, GATHER_COOLDOWN_MS, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SlotSprite } from "./creatures/species.jsx";
 import { deriveMoves, learnMoveAtLevel, TYPE_COLORS } from "./battle/moves.js";
 import { BattleScreen } from "./battle/BattleScreen.jsx";
@@ -15,9 +16,17 @@ import { simulate } from "./sim/simulate.js";
 import DPad from "./ui/DPad.jsx";
 
 // Adds what happened to the land while you were away to the away report
-function withLand(report,stats,away){
-  if(!stats) return report;
+function withLand(report,stats,away,plantStats=null){
+  if(!stats&&!plantStats) return report;
   const r=report?{...report,lines:[...report.lines]}:{awayMs:away,lines:[]};
+  if(plantStats){
+    const {sprouted,matured,spread,died}=plantStats;
+    if(sprouted) r.lines.push(`${sprouted} ${sprouted===1?"seed":"seeds"} sprouted`);
+    if(matured) r.lines.push(`${matured} ${matured===1?"plant":"plants"} grew to full size`);
+    if(spread) r.lines.push(`Plants spread to ${spread} new ${spread===1?"spot":"spots"}`);
+    if(died) r.lines.push(`${died} ${died===1?"plant":"plants"} wilted in the wrong spot`);
+  }
+  if(!stats) return r;
   if(stats.grew) r.lines.push(`${stats.grew} ${stats.grew===1?"patch":"patches"} of land grew taller`);
   if(stats.thinned) r.lines.push(`${stats.thinned} ${stats.thinned===1?"patch":"patches"} thinned out`);
   if(stats.pathsFaded) r.lines.push(`${stats.pathsFaded} worn ${stats.pathsFaded===1?"path":"paths"} grew back over`);
@@ -35,12 +44,8 @@ function makeNewWorld(){
     const c=Math.floor(Math.random()*COLS)+0.5, r=Math.floor(Math.random()*ROWS)+0.5;
     if(isPassable(map,c,r)&&Math.hypot(c-player.col,r-player.row)>4) creatures.push(makeWildCreature(c,r));
   }
-  const plants=[]; tries=0;
-  while(plants.length<20&&tries++<400){
-    const c=Math.floor(Math.random()*COLS)+0.5, r=Math.floor(Math.random()*ROWS)+0.5;
-    if(isPassable(map,c,r)) plants.push(makePlant(c,r));
-  }
-  return { land, map, state:{ creatures, plants, player, inventory:[starter], events:[], floats:[], tick:0 } };
+  const plants=startingPlants(land);
+  return { land, map, state:{ creatures, plants, player, inventory:[starter], seeds:{bogmoss:5,cattail:3}, events:[], floats:[], tick:0 } };
 }
 
 export default function Homebase(){
@@ -84,11 +89,13 @@ export default function Homebase(){
     const d=readSave(); if(!d) { setScreen("title"); return; }
     landRef.current=d.land;
     const away=Date.now()-(d.savedAt||Date.now());
-    const landStats=growLand(d.land,away*speedRef.current);
+    const awayScaled=away*speedRef.current;
+    const landStats=growLand(d.land,awayScaled,plantEffects(d.state.plants||[]));
+    const grown=growPlants(d.state.plants||[],d.land,awayScaled);
     const map=deriveMap(d.land);
     mapRef.current=map; groundRef.current=buildGround(map); setMapData(map);
-    const caught=catchUp({...d.state,events:[],floats:[]},away);
-    const state=caught.state, report=withLand(caught.report,landStats,away);
+    const caught=catchUp({...d.state,plants:grown.plants,seeds:d.state.seeds||{bogmoss:5,cattail:3},events:[],floats:[]},away);
+    const state=caught.state, report=withLand(caught.report,landStats,away,grown.stats);
     stateRef.current=state;
     tickRef.current=d.state.tick||Math.floor((d.worldTime||0)/TICK_MS);
     const maxId=[...state.creatures,...state.plants,...state.inventory].reduce((m,e)=>Math.max(m,e.id||0),0);
@@ -115,10 +122,12 @@ export default function Homebase(){
       const away=hiddenAtRef.current?Date.now()-hiddenAtRef.current:0;
       hiddenAtRef.current=0; lastFrameRef.current=0; accRef.current=0;
       if(away>=5000&&stateRef.current){
-        const landStats=landRef.current?growLand(landRef.current,away*speedRef.current):null;
+        const awayScaled=away*speedRef.current;
+        const landStats=landRef.current?growLand(landRef.current,awayScaled,plantEffects(stateRef.current.plants)):null;
         if(landStats) landDirtyRef.current=true;
-        const caught=catchUp(stateRef.current,away);
-        const state=caught.state, report=withLand(caught.report,landStats,away);
+        const grown=growPlants(stateRef.current.plants,landRef.current,awayScaled);
+        const caught=catchUp({...stateRef.current,plants:grown.plants},away);
+        const state=caught.state, report=withLand(caught.report,landStats,away,grown.stats);
         stateRef.current=state;
         setUiState(u=>({...u,inventory:state.inventory,plants:state.plants.length}));
         if(report&&away>=60000) setAwayReport(report);
@@ -141,6 +150,50 @@ export default function Homebase(){
   };
   const openBag=()=>{ setShowBag(p=>!p); setSelectedInv(stateRef.current?.inventory.length?0:null); setMoveFrom(null); };
   const closeBag=()=>{ setShowBag(false); setSelectedInv(null); setMoveFrom(null); };
+
+  // ── Seeds: plant in the patch in front of you, gather from mature plants nearby
+  const[showSeeds,setShowSeeds]=useState(false);
+  const showSeedsRef=useRef(false); showSeedsRef.current=showSeeds;
+  const targetTile=()=>{
+    const p=stateRef.current?.player; if(!p) return null;
+    const [dc,dr]={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[p.facing]||[0,1];
+    return {c:Math.floor(p.col)+dc,r:Math.floor(p.row)+dr};
+  };
+  const gatherable=()=>{
+    const s=stateRef.current; if(!s) return null;
+    const now=Date.now();
+    return s.plants.filter(pl=>pl.stage===3&&(now-(pl.lastGather||0))*speedRef.current>=GATHER_COOLDOWN_MS)
+      .map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)}))
+      .filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
+  };
+  function gardenInfo(){
+    const t=targetTile(), land=landRef.current; if(!t||!land) return null;
+    const cell=land.cells[t.r]?.[t.c];
+    const occupied=!!stateRef.current.plants.find(pl=>plantKey(pl)===t.c+","+t.r);
+    const fits={}; for(const id of Object.keys(PLANT_SPECIES)){ const f=fitOf(id,cell); fits[id]={fit:f,word:occupied?"Already planted":fitWord(f,cell,id)}; }
+    const g=gatherable();
+    return {target:t,fits,occupied,gather:g?PLANT_SPECIES[g.species].name:null};
+  }
+  const addFloat=(text,color)=>{ const s=stateRef.current; stateRef.current={...s,floats:[...s.floats,{id:newId(),col:s.player.col,row:s.player.row,text,color,tick:tickRef.current}]}; };
+  const plantSeed=id=>{
+    const s=stateRef.current, land=landRef.current, t=targetTile(); if(!s||!land||!t) return;
+    if(!(s.seeds?.[id]>0)) { addFloat("No seeds left","#f87171"); return; }
+    const cell=land.cells[t.r]?.[t.c];
+    if(!cell||cell.water||cell.edge||cell.mother||!isPassable(mapRef.current,t.c+0.5,t.r+0.5)) { addFloat("Can't plant there","#f87171"); return; }
+    if(s.plants.find(pl=>plantKey(pl)===t.c+","+t.r)) { addFloat("Already planted","#facc15"); return; }
+    const f=fitOf(id,cell);
+    if(f<=0) { addFloat(fitWord(f,cell,id),"#f87171"); return; }
+    stateRef.current={...s,plants:[...s.plants,makeSeedling(id,t.c,t.r,0)],seeds:{...s.seeds,[id]:s.seeds[id]-1}};
+    addFloat("🌱 Planted","#86efac");
+    setUiState(u=>({...u,seeds:stateRef.current.seeds,garden:gardenInfo()}));
+  };
+  const gatherSeeds=()=>{
+    const g=gatherable(); if(!g) { addFloat("Nothing ripe nearby","#94a3b8"); return; }
+    const s=stateRef.current, sp=PLANT_SPECIES[g.species];
+    stateRef.current={...s,plants:s.plants.map(pl=>pl.id===g.id?{...pl,lastGather:Date.now(),energy:Math.max(0.1,pl.energy-0.2)}:pl),seeds:{...s.seeds,[g.species]:(s.seeds?.[g.species]||0)+sp.seedsPerGather}};
+    addFloat(`+${sp.seedsPerGather} ${sp.name} seed${sp.seedsPerGather>1?"s":""}`,"#86efac");
+    setUiState(u=>({...u,seeds:stateRef.current.seeds,garden:gardenInfo()}));
+  };
 
   // Block selection
   useEffect(()=>{
@@ -191,7 +244,10 @@ export default function Homebase(){
           }
           // The land changes slowly with real time
           if(tickRef.current%20===0){
-            const st=growLand(land,20*TICK_MS*speedRef.current);
+            const stepMs=20*TICK_MS*speedRef.current;
+            const st=growLand(land,stepMs,plantEffects(stateRef.current.plants));
+            const g=growPlants(stateRef.current.plants,land,stepMs);
+            stateRef.current={...stateRef.current,plants:g.plants};
             if(st.grew||st.thinned||st.pathsFaded||tickRef.current%200===0) landDirtyRef.current=true;
           }
           if(inputRef.current.fightPressed){
@@ -215,7 +271,7 @@ export default function Homebase(){
           if(tickRef.current%6===0){
             const pl=stateRef.current.player, cell=landRef.current?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)];
             const here=cell?{wet:cell.wet,temp:cell.temp,soil:cell.soil,veg:cell.veg,trample:cell.trample,water:cell.water}:null;
-            setUiState(u=>({...u,creatures:stateRef.current.creatures.length,plants:stateRef.current.plants.length,tick:tickRef.current,inventory:stateRef.current.inventory,here}));
+            setUiState(u=>({...u,creatures:stateRef.current.creatures.length,plants:stateRef.current.plants.length,tick:tickRef.current,inventory:stateRef.current.inventory,here,seeds:stateRef.current.seeds||{},garden:gardenInfo()}));
           }
         }
       } else accRef.current=0;
@@ -225,7 +281,7 @@ export default function Homebase(){
         if(JSON.stringify(next)!==JSON.stringify(mapRef.current)){ mapRef.current=next; groundRef.current=buildGround(next); }
       }
       ctx.setTransform(dpr,0,0,dpr,0,0);
-      drawWorld(ctx,dims.W,dims.H,stateRef.current,mapRef.current,groundRef.current,tickRef.current,overlayRef.current,landRef.current);
+      drawWorld(ctx,dims.W,dims.H,stateRef.current,mapRef.current,groundRef.current,tickRef.current,overlayRef.current,landRef.current,showSeedsRef.current?targetTile():null);
     };
     animRef.current=requestAnimationFrame(loop);
     return()=>cancelAnimationFrame(animRef.current);
@@ -458,6 +514,33 @@ export default function Homebase(){
           </div>
         )}
         <canvas ref={canvasRef} style={{display:"block",width:"100%",height:dims.H,touchAction:"none"}}/>
+        {showSeeds&&!battle&&(
+          <div style={{position:"absolute",left:6,right:6,bottom:6,zIndex:6,background:"rgba(12,16,10,0.92)",border:"1px solid rgba(134,239,172,0.3)",borderRadius:10,padding:"8px",display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{color:"#c8e6a0",fontSize:12,letterSpacing:"0.08em"}}>Seeds · plant in front of you</span>
+              <button onClick={()=>setShowSeeds(false)} aria-label="Close seeds" style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
+            </div>
+            {Object.entries(PLANT_SPECIES).map(([id,sp])=>{
+              const n=uiState.seeds?.[id]||0, f=uiState.garden?.fits?.[id];
+              const good=f&&f.fit>0&&!uiState.garden.occupied;
+              return(
+                <div key={id} style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:15}}>{sp.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{color:"#e2e8f0",fontSize:12}}>{sp.name} <span style={{color:"#86efac"}}>×{n}</span></div>
+                    <div style={{color:good?(f.fit>=0.45?"#86efac":"#facc15"):"#f87171",fontSize:10}}>{f?f.word:"–"}</div>
+                  </div>
+                  <button onClick={()=>plantSeed(id)} disabled={!n||!good}
+                    style={{...btnBase,width:64,height:30,fontSize:11,opacity:n&&good?1:0.4,background:"rgba(134,239,172,0.12)",border:"1.5px solid rgba(134,239,172,0.4)",color:"#d1fae5"}}>Plant</button>
+                </div>
+              );
+            })}
+            <button onClick={gatherSeeds} disabled={!uiState.garden?.gather}
+              style={{...btnBase,height:30,fontSize:11,opacity:uiState.garden?.gather?1:0.4}}>
+              {uiState.garden?.gather?`Gather seeds from ${uiState.garden.gather}`:"Stand next to a full-grown plant to gather seeds"}
+            </button>
+          </div>
+        )}
         {uiState.paused&&!battle&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
             <span style={{color:"#c8e6a0",fontSize:22,letterSpacing:"0.22em",textTransform:"uppercase"}}>Paused</span>
@@ -484,6 +567,10 @@ export default function Homebase(){
               <button onClick={openBag} onContextMenu={e=>e.preventDefault()}
                 style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1}}>
                 <span style={{fontSize:14}}>🎒</span><span style={{fontSize:9,color:"#86efac"}}>{uiState.inventory.length}/{INVENTORY_MAX}</span>
+              </button>
+              <button onClick={()=>{setShowSeeds(v=>!v);setUiState(u=>({...u,garden:gardenInfo(),seeds:stateRef.current?.seeds||{}}));}} onContextMenu={e=>e.preventDefault()} aria-label="Seeds"
+                style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1,background:showSeeds?"rgba(134,239,172,0.16)":btnBase.background,border:showSeeds?"1.5px solid rgba(134,239,172,0.5)":btnBase.border}}>
+                <span style={{fontSize:14}}>🌱</span><span style={{fontSize:9,color:"#86efac"}}>{Object.values(uiState.seeds||{}).reduce((a,b)=>a+b,0)}</span>
               </button>
               <button onClick={togglePause} onContextMenu={e=>e.preventDefault()}
                 style={{...btnBase,width:58,height:40}}>
