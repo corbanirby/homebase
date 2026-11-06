@@ -57,7 +57,7 @@ export default function Homebase(){
   const lastGroundRef=useRef(0);    // when the ground was last redrawn
   const lastTileRef=useRef(new Map()); // the patch each walker was last on, for trampling
   const speedRef=useRef(timeSpeed()); // ?speed=N speeds up land changes for testing
-  const[overlay,setOverlay]=useState(null); // null | "wet" | "temp" | "soil"
+  const[overlay,setOverlay]=useState(null); // null | "wet" | "temp" | "soil" | "veg"
   const overlayRef=useRef(null); overlayRef.current=overlay;
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0,capturePressed:false,fightPressed:false});
@@ -154,7 +154,7 @@ export default function Homebase(){
 
   // Measure
   useEffect(()=>{
-    const CTRL=214,TOP=36;
+    const CTRL=214,TOP=36+30; // header + land readout strip
     const measure=()=>setDims({W:window.innerWidth,H:Math.max(160,window.innerHeight-CTRL-TOP-8)});
     measure();
     window.addEventListener("resize",measure);
@@ -212,7 +212,11 @@ export default function Homebase(){
             }
           }
           if(tickRef.current%100===0) saveNow();
-          if(tickRef.current%6===0) setUiState(u=>({...u,creatures:stateRef.current.creatures.length,plants:stateRef.current.plants.length,tick:tickRef.current,inventory:stateRef.current.inventory}));
+          if(tickRef.current%6===0){
+            const pl=stateRef.current.player, cell=landRef.current?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)];
+            const here=cell?{wet:cell.wet,temp:cell.temp,soil:cell.soil,veg:cell.veg,trample:cell.trample,water:cell.water}:null;
+            setUiState(u=>({...u,creatures:stateRef.current.creatures.length,plants:stateRef.current.plants.length,tick:tickRef.current,inventory:stateRef.current.inventory,here}));
+          }
         }
       } else accRef.current=0;
       if(landDirtyRef.current&&ts-lastGroundRef.current>400){
@@ -421,10 +425,6 @@ export default function Homebase(){
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 12px",flexShrink:0,background:"rgba(0,0,0,0.5)",borderBottom:"1px solid rgba(200,230,160,0.08)",height:36}}>
         <span style={{color:"#c8e6a0",fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase"}}>Homebase</span>
-        <button onClick={()=>setOverlay(o=>({null:"wet",wet:"temp",temp:"soil",soil:null})[o])} aria-label="Show land conditions"
-          style={{background:overlay?"rgba(200,230,160,0.18)":"transparent",border:"1px solid rgba(200,230,160,0.3)",borderRadius:6,color:"#c8e6a0",fontFamily:"Georgia,serif",fontSize:10,padding:"3px 7px",cursor:"pointer",letterSpacing:"0.06em",touchAction:"manipulation"}}>
-          {overlay?({wet:"💧 Wetness",temp:"🌡 Temperature",soil:"🪨 Soil"})[overlay]:"🔍 Land"}
-        </button>
         <div style={{display:"flex",gap:10,marginLeft:"auto",alignItems:"center"}}>
           <span style={{color:"#4a6a32",fontSize:11}}>🐾 <span style={{color:"#86efac"}}>{uiState.creatures}</span></span>
           <span style={{color:"#4a6a32",fontSize:11}}>🌿 <span style={{color:"#4ade80"}}>{uiState.plants}</span></span>
@@ -433,11 +433,26 @@ export default function Homebase(){
         </div>
       </div>
 
+      {/* The patch you're standing on: tap one to see it across the land */}
+      <div style={{display:"flex",gap:6,padding:"3px 8px",height:30,flexShrink:0,background:"rgba(0,0,0,0.35)",alignItems:"center",overflowX:"auto"}}>
+        {[
+          ["wet","💧",uiState.here?Math.round(uiState.here.wet*100)+"%":"–","Wetness"],
+          ["temp","🌡",uiState.here?Math.round(20+uiState.here.temp*80)+"°F":"–","Temperature"],
+          ["soil","🪨",uiState.here?SOILS[uiState.here.soil]?.label:"–","Soil"],
+          ["veg","🌿",uiState.here?(uiState.here.water?"Water":["Bare","Grass","Tall","Forest"][uiState.here.veg]+(uiState.here.trample>=6?" · path":"")):"–","Growth"],
+        ].map(([key,icon,val,label])=>(
+          <button key={key} onClick={()=>setOverlay(o=>o===key?null:key)} aria-label={label+": "+val+". Tap to show across the land"} aria-pressed={overlay===key}
+            style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center",gap:4,background:overlay===key?"rgba(200,230,160,0.2)":"rgba(255,255,255,0.04)",border:"1px solid "+(overlay===key?"rgba(200,230,160,0.55)":"rgba(200,230,160,0.12)"),borderRadius:6,color:"#dbeac8",fontFamily:"Georgia,serif",fontSize:11,padding:"3px 4px",cursor:"pointer",whiteSpace:"nowrap",touchAction:"manipulation"}}>
+            <span>{icon}</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{val}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Canvas */}
       <div style={{position:"relative",flexShrink:0}}>
         {overlay&&(
           <div style={{position:"absolute",top:6,left:6,zIndex:5,background:"rgba(0,0,0,0.65)",borderRadius:6,padding:"5px 8px",display:"flex",gap:8,flexWrap:"wrap",maxWidth:"calc(100% - 12px)",pointerEvents:"none"}}>
-            {(overlay==="soil"?Object.entries(SOILS).map(([k,v])=>[v.label,SOIL_COLORS[k]]):overlay==="wet"?[["Dry","rgba(230,190,90,0.8)"],["Damp","rgba(90,170,220,0.8)"],["Waterlogged","rgba(40,90,220,0.9)"]]:[["Cool","rgba(80,140,230,0.8)"],["Mild","rgba(200,200,120,0.8)"],["Hot","rgba(230,90,60,0.8)"]]).map(([label,col])=>(
+            {(overlay==="veg"?[["Bare","rgba(170,120,70,0.85)"],["Grass","rgba(150,200,90,0.85)"],["Tall","rgba(70,160,70,0.85)"],["Forest","rgba(20,90,40,0.9)"],["Path","rgba(220,180,120,0.9)"]]:overlay==="soil"?Object.entries(SOILS).map(([k,v])=>[v.label,SOIL_COLORS[k]]):overlay==="wet"?[["Dry","rgba(230,190,90,0.8)"],["Damp","rgba(90,170,220,0.8)"],["Waterlogged","rgba(40,90,220,0.9)"]]:[["Cool","rgba(80,140,230,0.8)"],["Mild","rgba(200,200,120,0.8)"],["Hot","rgba(230,90,60,0.8)"]]).map(([label,col])=>(
               <span key={label} style={{display:"flex",alignItems:"center",gap:4,color:"#e2e8f0",fontSize:10}}><span style={{width:9,height:9,borderRadius:2,background:col}}/>{label}</span>
             ))}
           </div>

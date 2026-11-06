@@ -192,6 +192,7 @@ function drawOverlay(ctx, mode, land, cam, W, H) {
     const cell = land.cells[r][c]; if (cell.edge) continue;
     let col;
     if (mode === "soil") col = SOIL_COLORS[cell.soil];
+    else if (mode === "veg") col = cell.water ? "rgba(40,90,220,0.6)" : cell.trample >= 6 && cell.veg <= 1 ? "rgba(220,180,120,0.9)" : ["rgba(170,120,70,0.85)","rgba(150,200,90,0.85)","rgba(70,160,70,0.85)","rgba(20,90,40,0.9)"][cell.veg];
     else if (mode === "wet") col = cell.water ? "rgba(40,90,220,0.9)" : `hsla(${Math.round(42 + cell.wet * 180)},70%,${Math.round(60 - cell.wet * 20)}%,0.65)`;
     else col = `hsla(${Math.round(220 - cell.temp * 215)},70%,55%,0.6)`;
     ctx.fillStyle = col; ctx.fillRect(c * TS - cam.x + 1, r * TS - cam.y + 1, TS - 2, TS - 2);
