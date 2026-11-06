@@ -24,7 +24,12 @@ const GROUND = {
   marsh:  [[95,127,72],[80,112,63],[110,143,85]],
   reeds:  [[95,127,72],[80,112,63],[110,143,85]],
   water:  [[63,127,160],[55,111,143],[111,168,196]],
+  sand:   [[204,182,128],[188,166,112],[220,200,148]],
+  path:   [[150,118,80],[134,104,70],[168,136,96]],
+  edge:   [[64,112,56],[54,98,48],[78,128,66]],
+  mother: [[95,154,69],[79,138,60],[116,173,82]],
 };
+export const SOIL_COLORS = { rich:"rgba(60,40,20,0.85)", poor:"rgba(180,150,100,0.85)", sandy:"rgba(240,215,140,0.85)", rocky:"rgba(150,150,150,0.85)", mineral:"rgba(120,200,200,0.85)" };
 const FLOWER_COLORS = [[236,120,170],[250,220,90],[245,245,240],[190,150,240]];
 
 export function buildGround(map) {
@@ -44,7 +49,7 @@ export function buildGround(map) {
         const nc = x < 2 ? c - 1 : x > P - 3 ? c + 1 : c;
         const nr = y < 2 ? r - 1 : y > P - 3 ? r + 1 : r;
         const n = tileOf(nc, nr);
-        if (n !== "water" || t === "water") src = n;
+        if ((n !== "water" || t === "water") && n !== "edge") src = n;
       }
       const pal = GROUND[src] || GROUND.grass;
       const v = hash(c * P + x, r * P + y);
@@ -82,6 +87,21 @@ const TREE = pixelCanvas(24, 34, g => {
   g.fillStyle = "#5c4028"; g.fillRect(10, 22, 4, 11); g.fillStyle = "#47301e"; g.fillRect(10, 22, 1, 11);
   const blob = (x, y, r, col) => { g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
   blob(12, 14, 11, "#2e5f36"); blob(9, 11, 8, "#3f7a42"); blob(8, 8, 4, "#5c9a52");
+});
+const HEDGE = pixelCanvas(24, 30, g => {
+  const blob = (x, y, r, col) => { g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); };
+  blob(12, 18, 12, "#24502c"); blob(7, 14, 7, "#2f6236"); blob(17, 13, 7, "#2f6236"); blob(8, 10, 3, "#4c8a48"); blob(16, 9, 3, "#4c8a48");
+});
+// The mother plant: a broad-leafed plant cradling your homebase pod
+const MOTHER = pixelCanvas(40, 52, g => {
+  g.fillStyle = "#3f6b2e"; g.fillRect(19, 26, 3, 24);
+  const leaf = (x, y, w, h, col, flip) => { g.fillStyle = col; g.beginPath(); g.ellipse(x, y, w, h, flip ? 0.6 : -0.6, 0, Math.PI * 2); g.fill(); };
+  leaf(10, 38, 10, 4, "#4f8a3a", false); leaf(30, 38, 10, 4, "#4f8a3a", true);
+  leaf(9, 28, 9, 4, "#5f9e44", false); leaf(31, 28, 9, 4, "#5f9e44", true);
+  g.fillStyle = "#c9a26a"; g.beginPath(); g.ellipse(20, 15, 10, 13, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#e0bf86"; g.beginPath(); g.ellipse(17, 11, 4, 6, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#7fe0a0"; g.fillRect(20, 6, 2, 18);
+  g.fillStyle = "#4f8a3a"; g.beginPath(); g.ellipse(20, 3, 6, 3, 0, 0, Math.PI * 2); g.fill();
 });
 const REEDS = [0, 1, 2].map(k => pixelCanvas(16, 18, g => {
   for (let i = 0; i < 9; i++) {
@@ -122,11 +142,12 @@ export function cameraFor(player, W, H) {
 }
 
 // ─── Drawing ──────────────────────────────────────────────────────────────────
-export function drawWorld(ctx, W, H, state, map, ground, tick) {
+export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, land = null) {
   const cam = cameraFor(state.player, W, H);
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#0e0e0e"; ctx.fillRect(0, 0, W, H);
   ctx.drawImage(ground, -cam.x, -cam.y);
+  if (overlay && land) drawOverlay(ctx, overlay, land, cam, W, H);
 
   // Everything upright is sorted by where it touches the ground, back to front
   const items = [];
@@ -134,7 +155,9 @@ export function drawWorld(ctx, W, H, state, map, ground, tick) {
   const r0 = Math.max(0, Math.floor(cam.y / TS) - 1), r1 = Math.min(ROWS - 1, Math.ceil((cam.y + H) / TS) + 2);
   for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
     const t = map[r][c];
-    if (TILES[t]?.object) items.push({ y: r + 0.95, draw: () => drawTree(ctx, c, r, cam) });
+    if (t === "mother") items.push({ y: r + 0.95, draw: () => drawMother(ctx, c, r, cam, tick) });
+    else if (t === "edge") items.push({ y: r + 0.95, draw: () => drawHedge(ctx, c, r, cam) });
+    else if (TILES[t]?.object) items.push({ y: r + 0.95, draw: () => drawTree(ctx, c, r, cam) });
     else if (TILES[t]?.cover) items.push({ y: r + 0.98, draw: () => drawReeds(ctx, c, r, cam) });
   }
   for (const p of state.plants) items.push({ y: p.row, draw: () => drawPlant(ctx, p, cam) });
@@ -150,6 +173,29 @@ function drawTree(ctx, c, r, cam) {
   const x = c * TS - cam.x, y = r * TS - cam.y;
   ctx.globalAlpha = 0.25; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(x + TS / 2, y + TS - 3, 12, 4, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
   ctx.drawImage(TREE, x + TS / 2 - 24, y + TS - 68, 48, 68);
+}
+function drawHedge(ctx, c, r, cam) {
+  const x = c * TS - cam.x, y = r * TS - cam.y;
+  ctx.drawImage(HEDGE, x - 8, y + TS - 60, 48, 60);
+}
+function drawMother(ctx, c, r, cam, tick) {
+  const x = c * TS - cam.x, y = r * TS - cam.y;
+  ctx.globalAlpha = 0.28; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(x + TS / 2, y + TS - 3, 20, 6, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+  const glow = 0.25 + Math.sin(tick * 0.06) * 0.12;
+  ctx.globalAlpha = glow; ctx.fillStyle = "#9ff0b8"; ctx.beginPath(); ctx.ellipse(x + TS / 2, y + TS - 70, 24, 28, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.drawImage(MOTHER, x + TS / 2 - 40, y + TS - 104, 80, 104);
+}
+function drawOverlay(ctx, mode, land, cam, W, H) {
+  const c0 = Math.max(0, Math.floor(cam.x / TS)), c1 = Math.min(COLS - 1, Math.ceil((cam.x + W) / TS));
+  const r0 = Math.max(0, Math.floor(cam.y / TS)), r1 = Math.min(ROWS - 1, Math.ceil((cam.y + H) / TS));
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const cell = land.cells[r][c]; if (cell.edge) continue;
+    let col;
+    if (mode === "soil") col = SOIL_COLORS[cell.soil];
+    else if (mode === "wet") col = cell.water ? "rgba(40,90,220,0.9)" : `hsla(${Math.round(42 + cell.wet * 180)},70%,${Math.round(60 - cell.wet * 20)}%,0.65)`;
+    else col = `hsla(${Math.round(220 - cell.temp * 215)},70%,55%,0.6)`;
+    ctx.fillStyle = col; ctx.fillRect(c * TS - cam.x + 1, r * TS - cam.y + 1, TS - 2, TS - 2);
+  }
 }
 function drawReeds(ctx, c, r, cam) {
   const x = c * TS - cam.x, y = r * TS - cam.y;

@@ -1,8 +1,8 @@
 import { COLS, ROWS, MAX_CREATURES, MAX_PLANTS, PLANT_SPAWN_INTERVAL, HUNGER_RATE, REPRODUCE_COOLDOWN,
   REPRODUCE_HUNGER_MIN, PLANT_ENERGY, PLAYER_SPEED, CAPTURE_DIST, COMBAT_BASE_DAMAGE, TERRITORY_RADIUS,
-  INVENTORY_MAX, HEAL_RATE, BREED_TICKS, BREED_HUE_COMPAT, BREED_MIN_LEVEL, BREED_MAX_BAG } from "../config.js";
+  INVENTORY_MAX, HEAL_RATE, PATH_SPEED_BONUS, BREED_TICKS, BREED_HUE_COMPAT, BREED_MIN_LEVEL, BREED_MAX_BAG } from "../config.js";
 import { newId } from "../engine/ids.js";
-import { isPassable } from "../world/tiles.js";
+import { isPassable, isFast } from "../world/tiles.js";
 import { makeCreature, makeWildCreature, makePlant } from "../creatures/factory.js";
 import { crossDNA } from "../creatures/dna.js";
 import { deriveMoves } from "../battle/moves.js";
@@ -21,9 +21,10 @@ export function simulate(state, tick, inputRef, map) {
   // Player movement (each axis separately, so you slide along water and trees)
   let {col:pc,row:pr,facing,moveAnim}=player;
   const {dx:idx,dy:idy,capturePressed}=inputRef.current;
-  const nc=Math.max(0.3,Math.min(COLS-0.3,pc+idx*PLAYER_SPEED));
+  const spd=PLAYER_SPEED*(isFast(map,pc,pr+0.25)?PATH_SPEED_BONUS:1);
+  const nc=Math.max(0.3,Math.min(COLS-0.3,pc+idx*spd));
   if(isPassable(map,nc,pr+0.25)) pc=nc;
-  const nr=Math.max(0.3,Math.min(ROWS-0.1,pr+idy*PLAYER_SPEED));
+  const nr=Math.max(0.3,Math.min(ROWS-0.1,pr+idy*spd));
   if(isPassable(map,pc,nr+0.25)) pr=nr;
   if(Math.abs(idx)>Math.abs(idy)) facing=idx<0?"left":"right";
   else if(idy!==0) facing=idy<0?"up":"down";

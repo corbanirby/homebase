@@ -3,8 +3,9 @@ import { COLS, ROWS, TICK_MS, INVENTORY_MAX, XP_PER_LEVEL, FIGHT_DIST, BREED_TIC
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
-import { makeWorldMap, isPassable } from "./world/tiles.js";
-import { buildGround, drawWorld } from "./world/render.js";
+import { isPassable } from "./world/tiles.js";
+import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./world/land.js";
+import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
 import { randomDNA, dnaColor } from "./creatures/dna.js";
 import { makeCreature, makeWildCreature, makePlant, makePlayer } from "./creatures/factory.js";
 import { speciesOf, lifeStage, CreatureIcon, SlotSprite } from "./creatures/species.jsx";
@@ -13,9 +14,20 @@ import { BattleScreen } from "./battle/BattleScreen.jsx";
 import { simulate } from "./sim/simulate.js";
 import DPad from "./ui/DPad.jsx";
 
-// A brand-new homebase: map, wild creatures, plants, and your starter in the bag
+// Adds what happened to the land while you were away to the away report
+function withLand(report,stats,away){
+  if(!stats) return report;
+  const r=report?{...report,lines:[...report.lines]}:{awayMs:away,lines:[]};
+  if(stats.grew) r.lines.push(`${stats.grew} ${stats.grew===1?"patch":"patches"} of land grew taller`);
+  if(stats.thinned) r.lines.push(`${stats.thinned} ${stats.thinned===1?"patch":"patches"} thinned out`);
+  if(stats.pathsFaded) r.lines.push(`${stats.pathsFaded} worn ${stats.pathsFaded===1?"path":"paths"} grew back over`);
+  return r;
+}
+
+// A brand-new homebase: land, wild creatures, plants, and your starter in the bag
 function makeNewWorld(){
-  const map=makeWorldMap();
+  const land=makeLand();
+  const map=deriveMap(land);
   const player=makePlayer(map);
   const starter={...makeCreature(player.col,player.row,randomDNA()),level:1,hp:1.0};
   const creatures=[]; let tries=0;
@@ -28,7 +40,7 @@ function makeNewWorld(){
     const c=Math.floor(Math.random()*COLS)+0.5, r=Math.floor(Math.random()*ROWS)+0.5;
     if(isPassable(map,c,r)) plants.push(makePlant(c,r));
   }
-  return { map, state:{ creatures, plants, player, inventory:[starter], events:[], floats:[], tick:0 } };
+  return { land, map, state:{ creatures, plants, player, inventory:[starter], events:[], floats:[], tick:0 } };
 }
 
 export default function Homebase(){
@@ -40,6 +52,13 @@ export default function Homebase(){
   const accRef=useRef(0);           // real time not yet turned into world steps
   const groundRef=useRef(null);     // pre-drawn ground for the current map
   const hiddenAtRef=useRef(0);      // when the tab was last hidden
+  const landRef=useRef(null);       // conditions and growth of every patch
+  const landDirtyRef=useRef(false); // the visible tiles need recomputing
+  const lastGroundRef=useRef(0);    // when the ground was last redrawn
+  const lastTileRef=useRef(new Map()); // the patch each walker was last on, for trampling
+  const speedRef=useRef(timeSpeed()); // ?speed=N speeds up land changes for testing
+  const[overlay,setOverlay]=useState(null); // null | "wet" | "temp" | "soil"
+  const overlayRef=useRef(null); overlayRef.current=overlay;
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0,capturePressed:false,fightPressed:false});
   const battleRef=useRef(null);
@@ -56,16 +75,20 @@ export default function Homebase(){
   const saveNow=useCallback(()=>{
     if(!mapRef.current||!stateRef.current) return;
     if(!stateRef.current.inventory.length) return; // nothing worth resuming
-    const d=writeSave(mapRef.current,{...stateRef.current,tick:tickRef.current},tickRef.current*TICK_MS);
+    const d=writeSave(landRef.current,{...stateRef.current,tick:tickRef.current},tickRef.current*TICK_MS);
     if(d){ setSaveInfo(d); setLastSaved(Date.now()); }
   },[]);
 
   // Resume a saved world, then run the catch-up step for the time you were away
   const continueGame=useCallback(()=>{
     const d=readSave(); if(!d) { setScreen("title"); return; }
-    mapRef.current=d.map; groundRef.current=buildGround(d.map); setMapData(d.map);
+    landRef.current=d.land;
     const away=Date.now()-(d.savedAt||Date.now());
-    const {state,report}=catchUp({...d.state,events:[],floats:[]},away);
+    const landStats=growLand(d.land,away*speedRef.current);
+    const map=deriveMap(d.land);
+    mapRef.current=map; groundRef.current=buildGround(map); setMapData(map);
+    const caught=catchUp({...d.state,events:[],floats:[]},away);
+    const state=caught.state, report=withLand(caught.report,landStats,away);
     stateRef.current=state;
     tickRef.current=d.state.tick||Math.floor((d.worldTime||0)/TICK_MS);
     const maxId=[...state.creatures,...state.plants,...state.inventory].reduce((m,e)=>Math.max(m,e.id||0),0);
@@ -77,12 +100,12 @@ export default function Homebase(){
 
   // Start a brand-new homebase
   const startNewWorld=useCallback(()=>{
-    const {map,state}=makeNewWorld();
-    mapRef.current=map; groundRef.current=buildGround(map); setMapData(map);
+    const {land,map,state}=makeNewWorld();
+    landRef.current=land; mapRef.current=map; groundRef.current=buildGround(map); setMapData(map);
     stateRef.current=state; tickRef.current=0;
     setUiState(u=>({...u,creatures:state.creatures.length,plants:state.plants.length,tick:0,inventory:state.inventory}));
     setScreen("game");
-    setTimeout(()=>{ const d=writeSave(map,state,0); if(d){setSaveInfo(d);setLastSaved(Date.now());} },0);
+    setTimeout(()=>{ const d=writeSave(land,state,0); if(d){setSaveInfo(d);setLastSaved(Date.now());} },0);
   },[]);
 
   // Save when the tab is hidden or closed; catch up when it comes back
@@ -92,7 +115,10 @@ export default function Homebase(){
       const away=hiddenAtRef.current?Date.now()-hiddenAtRef.current:0;
       hiddenAtRef.current=0; lastFrameRef.current=0; accRef.current=0;
       if(away>=5000&&stateRef.current){
-        const {state,report}=catchUp(stateRef.current,away);
+        const landStats=landRef.current?growLand(landRef.current,away*speedRef.current):null;
+        if(landStats) landDirtyRef.current=true;
+        const caught=catchUp(stateRef.current,away);
+        const state=caught.state, report=withLand(caught.report,landStats,away);
         stateRef.current=state;
         setUiState(u=>({...u,inventory:state.inventory,plants:state.plants.length}));
         if(report&&away>=60000) setAwayReport(report);
@@ -156,6 +182,18 @@ export default function Homebase(){
           accRef.current-=TICK_MS;
           tickRef.current++;
           stateRef.current=simulate(stateRef.current,tickRef.current,inputRef,mapRef.current);
+          // Walking wears the ground; enough wear makes a path
+          const land=landRef.current, seen=lastTileRef.current, sNow=stateRef.current;
+          const walkers=[{id:"player",col:sNow.player.col,row:sNow.player.row,odds:1},...sNow.creatures.map(c=>({id:c.id,col:c.col,row:c.row,odds:0.15}))];
+          for(const w of walkers){
+            const key=Math.floor(w.col)+","+Math.floor(w.row);
+            if(seen.get(w.id)!==key){ seen.set(w.id,key); if(Math.random()<w.odds&&trample(land,w.col,w.row)) landDirtyRef.current=true; }
+          }
+          // The land changes slowly with real time
+          if(tickRef.current%20===0){
+            const st=growLand(land,20*TICK_MS*speedRef.current);
+            if(st.grew||st.thinned||st.pathsFaded||tickRef.current%200===0) landDirtyRef.current=true;
+          }
           if(inputRef.current.fightPressed){
             inputRef.current.fightPressed=false;
             const s=stateRef.current;
@@ -177,8 +215,13 @@ export default function Homebase(){
           if(tickRef.current%6===0) setUiState(u=>({...u,creatures:stateRef.current.creatures.length,plants:stateRef.current.plants.length,tick:tickRef.current,inventory:stateRef.current.inventory}));
         }
       } else accRef.current=0;
+      if(landDirtyRef.current&&ts-lastGroundRef.current>400){
+        landDirtyRef.current=false; lastGroundRef.current=ts;
+        const next=deriveMap(landRef.current);
+        if(JSON.stringify(next)!==JSON.stringify(mapRef.current)){ mapRef.current=next; groundRef.current=buildGround(next); }
+      }
       ctx.setTransform(dpr,0,0,dpr,0,0);
-      drawWorld(ctx,dims.W,dims.H,stateRef.current,mapRef.current,groundRef.current,tickRef.current);
+      drawWorld(ctx,dims.W,dims.H,stateRef.current,mapRef.current,groundRef.current,tickRef.current,overlayRef.current,landRef.current);
     };
     animRef.current=requestAnimationFrame(loop);
     return()=>cancelAnimationFrame(animRef.current);
@@ -378,6 +421,10 @@ export default function Homebase(){
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 12px",flexShrink:0,background:"rgba(0,0,0,0.5)",borderBottom:"1px solid rgba(200,230,160,0.08)",height:36}}>
         <span style={{color:"#c8e6a0",fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase"}}>Homebase</span>
+        <button onClick={()=>setOverlay(o=>({null:"wet",wet:"temp",temp:"soil",soil:null})[o])} aria-label="Show land conditions"
+          style={{background:overlay?"rgba(200,230,160,0.18)":"transparent",border:"1px solid rgba(200,230,160,0.3)",borderRadius:6,color:"#c8e6a0",fontFamily:"Georgia,serif",fontSize:10,padding:"3px 7px",cursor:"pointer",letterSpacing:"0.06em",touchAction:"manipulation"}}>
+          {overlay?({wet:"💧 Wetness",temp:"🌡 Temperature",soil:"🪨 Soil"})[overlay]:"🔍 Land"}
+        </button>
         <div style={{display:"flex",gap:10,marginLeft:"auto",alignItems:"center"}}>
           <span style={{color:"#4a6a32",fontSize:11}}>🐾 <span style={{color:"#86efac"}}>{uiState.creatures}</span></span>
           <span style={{color:"#4a6a32",fontSize:11}}>🌿 <span style={{color:"#4ade80"}}>{uiState.plants}</span></span>
@@ -388,6 +435,13 @@ export default function Homebase(){
 
       {/* Canvas */}
       <div style={{position:"relative",flexShrink:0}}>
+        {overlay&&(
+          <div style={{position:"absolute",top:6,left:6,zIndex:5,background:"rgba(0,0,0,0.65)",borderRadius:6,padding:"5px 8px",display:"flex",gap:8,flexWrap:"wrap",maxWidth:"calc(100% - 12px)",pointerEvents:"none"}}>
+            {(overlay==="soil"?Object.entries(SOILS).map(([k,v])=>[v.label,SOIL_COLORS[k]]):overlay==="wet"?[["Dry","rgba(230,190,90,0.8)"],["Damp","rgba(90,170,220,0.8)"],["Waterlogged","rgba(40,90,220,0.9)"]]:[["Cool","rgba(80,140,230,0.8)"],["Mild","rgba(200,200,120,0.8)"],["Hot","rgba(230,90,60,0.8)"]]).map(([label,col])=>(
+              <span key={label} style={{display:"flex",alignItems:"center",gap:4,color:"#e2e8f0",fontSize:10}}><span style={{width:9,height:9,borderRadius:2,background:col}}/>{label}</span>
+            ))}
+          </div>
+        )}
         <canvas ref={canvasRef} style={{display:"block",width:"100%",height:dims.H,touchAction:"none"}}/>
         {uiState.paused&&!battle&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>

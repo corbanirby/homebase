@@ -1,10 +1,12 @@
 import { getNextId } from "./ids.js";
+import { landFromMap } from "../world/land.js";
 
 // ─── Save / load (this browser only) ──────────────────────────────────────────
-// Version 2: built around real-world time. `savedAt` is when the world was last
+// Version 3: the homebase is stored as land (conditions per patch), not tiles.
+// Version 2 was built around real-world time. `savedAt` is when the world was last
 // written; on load, the catch-up step runs for the time since then.
-export const SAVE_VERSION = 2;
-const SAVE_KEY = "homebase-save-v2";
+export const SAVE_VERSION = 3;
+const SAVE_KEY = "homebase-save-v2"; // key kept across versions; the version lives inside
 const OLD_KEYS = ["homebase-save-v1"];
 
 // Older saves can't be carried over to the new world, so they are cleared once.
@@ -14,7 +16,7 @@ export function readSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null;
     const d = migrate(JSON.parse(raw));
-    if (d && Array.isArray(d.map) && d.state && Array.isArray(d.state.inventory)) return d;
+    if (d && d.land && Array.isArray(d.land.cells) && d.state && Array.isArray(d.state.inventory)) return d;
   } catch (e) { /* unreadable save */ }
   return null;
 }
@@ -22,14 +24,15 @@ export function readSave() {
 // Each future format change adds a step here, so old saves are upgraded instead of lost.
 function migrate(d) {
   if (!d || typeof d.v !== "number") return null;
+  if (d.v === 2 && Array.isArray(d.map)) { d = { ...d, v: 3, land: landFromMap(d.map) }; delete d.map; }
   if (d.v === SAVE_VERSION) return d;
   return null;
 }
 
-export function writeSave(map, state, worldTime) {
+export function writeSave(land, state, worldTime) {
   try {
     const data = {
-      v: SAVE_VERSION, savedAt: Date.now(), worldTime, nextId: getNextId(), map,
+      v: SAVE_VERSION, savedAt: Date.now(), worldTime, nextId: getNextId(), land,
       state: { ...state, events: [], floats: [] },
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(data));
