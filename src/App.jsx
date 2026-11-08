@@ -64,6 +64,15 @@ export default function Homebase(){
   const speedRef=useRef(timeSpeed()); // ?speed=N speeds up land changes for testing
   const[overlay,setOverlay]=useState(null); // null | "wet" | "temp" | "soil" | "veg"
   const overlayRef=useRef(null); overlayRef.current=overlay;
+  // Zoom: buttons, pinch on the map, or the mouse wheel. Remembered in this browser.
+  const[zoom,setZoomState]=useState(()=>{ try{ const z=Number(localStorage.getItem("homebase-zoom")); return z>=0.5&&z<=2?z:1; }catch(e){ return 1; } });
+  const zoomRef=useRef(zoom); zoomRef.current=zoom;
+  const setZoom=z=>{ const v=Math.round(Math.max(0.5,Math.min(2,z))*100)/100; setZoomState(v); try{ localStorage.setItem("homebase-zoom",String(v)); }catch(e){ /* ignore */ } };
+  const pinchRef=useRef(null);
+  const onCanvasTouchStart=e=>{ if(e.touches.length===2){ const[a,b]=e.touches; pinchRef.current={d:Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY),z:zoomRef.current}; } };
+  const onCanvasTouchMove=e=>{ if(e.touches.length===2&&pinchRef.current){ const[a,b]=e.touches; const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY); setZoom(pinchRef.current.z*d/pinchRef.current.d); } };
+  const onCanvasTouchEnd=e=>{ if(e.touches.length<2) pinchRef.current=null; };
+  const onCanvasWheel=e=>{ setZoom(zoomRef.current*(e.deltaY<0?1.1:1/1.1)); };
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0,capturePressed:false,fightPressed:false});
   const battleRef=useRef(null);
@@ -280,8 +289,9 @@ export default function Homebase(){
         const next=deriveMap(landRef.current);
         if(JSON.stringify(next)!==JSON.stringify(mapRef.current)){ mapRef.current=next; groundRef.current=buildGround(next); }
       }
-      ctx.setTransform(dpr,0,0,dpr,0,0);
-      drawWorld(ctx,dims.W,dims.H,stateRef.current,mapRef.current,groundRef.current,tickRef.current,overlayRef.current,landRef.current,showSeedsRef.current?targetTile():null);
+      const z=zoomRef.current;
+      ctx.setTransform(dpr*z,0,0,dpr*z,0,0);
+      drawWorld(ctx,dims.W/z,dims.H/z,stateRef.current,mapRef.current,groundRef.current,tickRef.current,overlayRef.current,landRef.current,showSeedsRef.current?targetTile():null);
     };
     animRef.current=requestAnimationFrame(loop);
     return()=>cancelAnimationFrame(animRef.current);
@@ -513,7 +523,14 @@ export default function Homebase(){
             ))}
           </div>
         )}
-        <canvas ref={canvasRef} style={{display:"block",width:"100%",height:dims.H,touchAction:"none"}}/>
+        <canvas ref={canvasRef} style={{display:"block",width:"100%",height:dims.H,touchAction:"none"}}
+          onTouchStart={onCanvasTouchStart} onTouchMove={onCanvasTouchMove} onTouchEnd={onCanvasTouchEnd} onWheel={onCanvasWheel}/>
+        <div style={{position:"absolute",right:"max(8px, env(safe-area-inset-right, 0px))",top:8,zIndex:5,display:"flex",flexDirection:"column",gap:6}}>
+          {[["+","Zoom in",1.25],["−","Zoom out",0.8]].map(([label,name,k])=>(
+            <button key={name} onClick={()=>setZoom(zoom*k)} aria-label={name} disabled={k>1?zoom>=2:zoom<=0.5}
+              style={{width:34,height:34,borderRadius:8,background:"rgba(0,0,0,0.55)",border:"1px solid rgba(200,230,160,0.3)",color:"#e3f5c8",fontSize:18,lineHeight:1,cursor:"pointer",opacity:(k>1?zoom>=2:zoom<=0.5)?0.35:1,touchAction:"manipulation"}}>{label}</button>
+          ))}
+        </div>
         {uiState.paused&&!battle&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
             <span style={{color:"#c8e6a0",fontSize:22,letterSpacing:"0.22em",textTransform:"uppercase"}}>Paused</span>
