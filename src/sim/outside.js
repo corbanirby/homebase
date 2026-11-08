@@ -1,0 +1,201 @@
+import { newId } from "../engine/ids.js";
+import { isPassable, isCover } from "../world/tiles.js";
+import { atlanta, areaKey, AREA } from "../world/atlanta.js";
+import { SPECIES, ATLANTA_SPECIES, lifeStage } from "../creatures/species.jsx";
+import { makeWild, DAY, STARVE_MS, HOUR } from "../creatures/resident.js";
+import { movePlayer } from "./movement.js";
+
+// ─── Life in the shared world ─────────────────────────────────────────────────
+// Each 16×16 area keeps a number for each species, set by how much of the land
+// there suits it. You meet them two ways: rustling cover (step in to see what's
+// hiding) and creatures out in the open, which react when you get close: the
+// bold charge you, the shy run, the rest slip into cover and become a rustle.
+const DENSITY = 0.012;  // creatures per tile of perfect land
+const REGROW = 0.35;    // share of the gap to full numbers that refills per day
+const MAX_RUSTLES = 4, MAX_WILDS = 5;
+
+function capacity(area, sp) {
+  const s = SPECIES[sp]; let cap = 0;
+  for (const [b, n] of Object.entries(area)) cap += n * (s.biomes[b] || 0);
+  return cap * DENSITY * (s.rare ? 0.3 : 1);
+}
+export function makePops() {
+  const w = atlanta(), pops = {};
+  for (const [k, area] of Object.entries(w.areas)) { pops[k] = {}; for (const sp of ATLANTA_SPECIES) pops[k][sp] = capacity(area, sp) * (0.7 + Math.random() * 0.3); }
+  return { pops, popsAt: Date.now() };
+}
+// Numbers recover toward what the land can hold while you're away
+export function regrowPops(world, now = Date.now(), speed = 1) {
+  const w = atlanta(), days = Math.max(0, (now - (world.popsAt || now)) * speed / DAY);
+  if (days <= 0) return world;
+  const pops = {};
+  for (const [k, area] of Object.entries(w.areas)) {
+    pops[k] = {};
+    for (const sp of ATLANTA_SPECIES) { const cap = capacity(area, sp), cur = world.pops[k]?.[sp] ?? cap; pops[k][sp] = cur + (cap - cur) * Math.min(1, days * REGROW); }
+  }
+  return { pops, popsAt: now };
+}
+function density(world, k) {
+  const area = atlanta().areas[k]; if (!area) return 0;
+  let have = 0, cap = 0;
+  for (const sp of ATLANTA_SPECIES) { have += world.pops[k]?.[sp] || 0; cap += capacity(area, sp); }
+  return cap > 0 ? Math.min(1, have / cap) : 0;
+}
+// Which species you'd meet on this tile, weighted by how many live in the area and how well the tile suits each
+function pickSpecies(world, col, row) {
+  const w = atlanta(), k = areaKey(col, row), b = w.biome[Math.floor(row)]?.[Math.floor(col)];
+  const weights = ATLANTA_SPECIES.map(sp => (world.pops[k]?.[sp] || 0) * ((SPECIES[sp].biomes[b] || 0) > 0 ? 1 + 2 * SPECIES[sp].biomes[b] : 0.15));
+  const total = weights.reduce((a, x) => a + x, 0); if (total < 0.3) return null;
+  let r = Math.random() * total;
+  for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r <= 0) return ATLANTA_SPECIES[i]; }
+  return ATLANTA_SPECIES[ATLANTA_SPECIES.length - 1];
+}
+// Farther from your door, stronger creatures
+export function wildAt(world, col, row, sp = null) {
+  sp = sp || pickSpecies(world, col, row); if (!sp) return null;
+  const d = distFromDoor(col, row);
+  const lv = Math.min(10, 1 + Math.floor(d / 14) + (Math.random() < 0.3 ? 1 : 0));
+  return makeWild(sp, col, row, lv, d < 12);
+}
+export function distFromDoor(col, row) { const { door } = atlanta(); return Math.hypot(col - (door.c + 0.5), row - (door.r + 0.5)); }
+export function takeFromPop(world, col, row, sp) {
+  const k = areaKey(col, row);
+  return { ...world, pops: { ...world.pops, [k]: { ...world.pops[k], [sp]: Math.max(0, (world.pops[k]?.[sp] || 0) - 1) } } };
+}
+export function newTrip(now = Date.now()) {
+  const { door } = atlanta();
+  return { player: { col: door.c + 0.5, row: door.r + 1.6, facing: "down", moveAnim: 0 }, wilds: [], rustles: [], bag: [], startedAt: now, lastTile: null };
+}
+
+// Ages and hunger for the creatures you're carrying, for time that passes outside
+export function ageCarried(c, ms) {
+  const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge });
+  return { ...c, age, stageId: st.id, fullness: Math.max(0, c.fullness - ms / STARVE_MS * (c.dna.metabolism ?? 1)), hp: c.hp < 1 && c.hp > 0.05 ? Math.min(1, c.hp + ms / (24 * HOUR)) : c.hp };
+}
+
+function randomCoverNear(map, col, row, rad) {
+  for (let i = 0; i < 10; i++) {
+    const c = Math.floor(col + (Math.random() * 2 - 1) * rad), r = Math.floor(row + (Math.random() * 2 - 1) * rad);
+    if (Math.hypot(c + 0.5 - col, r + 0.5 - row) < 2.5) continue;
+    if (isCover(map, c + 0.5, r + 0.5)) return { c, r };
+  }
+  return null;
+}
+function nearestCover(map, col, row, rad = 6) {
+  let best = null, bd = Infinity;
+  for (let r = Math.floor(row - rad); r <= row + rad; r++) for (let c = Math.floor(col - rad); c <= col + rad; c++) {
+    if (!isCover(map, c + 0.5, r + 0.5)) continue;
+    const d = Math.hypot(c + 0.5 - col, r + 0.5 - row); if (d < bd) { bd = d; best = { c, r }; }
+  }
+  return best;
+}
+
+// ─── One step outside ─────────────────────────────────────────────────────────
+export function simulateOutside(state, tick, input, dtMs) {
+  const w = atlanta(), map = w.tiles;
+  let trip = state.trip, world = state.world;
+  let floats = (state.floats || []).filter(f => tick - f.tick < 45);
+  const events = [];
+  const carried = new Set([...(state.vine || []), ...(trip.bag || [])]);
+  const player = movePlayer(trip.player, input, trip.wilds, map);
+  const pc = player.col, pr = player.row;
+
+  // Your creatures grow up and get hungry out here too
+  const creatures = state.creatures.map(c => {
+    if (!carried.has(c.id)) return c;
+    const n = ageCarried(c, dtMs);
+    if (n.stageId !== c.stageId) floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `${c.name} is now an ${lifeStage(n).label.toLowerCase()}!`, color: "#fde68a", tick });
+    return n;
+  });
+
+  // Rustling cover: something's hiding in there
+  let rustles = trip.rustles.filter(x => x.until > tick);
+  if (tick % 20 === 0 && rustles.length < MAX_RUSTLES && Math.random() < 0.15 + 0.4 * density(world, areaKey(pc, pr))) {
+    const spot = randomCoverNear(map, pc, pr, 9);
+    if (spot && !rustles.some(x => x.c === spot.c && x.r === spot.r)) {
+      const sp = pickSpecies(world, spot.c + 0.5, spot.r + 0.5);
+      if (sp) rustles.push({ c: spot.c, r: spot.r, species: sp, until: tick + 160 + Math.floor(Math.random() * 160) });
+    }
+  }
+
+  // Creatures out in the open
+  let wilds = trip.wilds;
+  if (tick % 60 === 0 && wilds.length < MAX_WILDS && Math.random() < 0.25 + 0.5 * density(world, areaKey(pc, pr))) {
+    const a = Math.random() * Math.PI * 2, d = 8 + Math.random() * 5;
+    const c = pc + Math.cos(a) * d, r = pr + Math.sin(a) * d;
+    if (isPassable(map, c, r) && !isCover(map, c, r) && distFromDoor(c, r) > 4) { const wd = wildAt(world, c, r); if (wd) wilds = [...wilds, { ...wd, mood: null }]; }
+  }
+  wilds = wilds.map(c => {
+    let { col, row, dcol, drow, wanderTimer, mood } = c;
+    const dx = pc - col, dy = pr - row, d = Math.hypot(dx, dy);
+    const st = lifeStage(c);
+    const spd = c.dna.speed * 0.03 * (st.id === "baby" ? 0.6 : st.id === "adolescent" ? 0.85 : 1);
+    // Close enough to notice you: each decides once, by its temper
+    if (!mood && d < 4) {
+      const ag = c.dna.aggression;
+      mood = ag > 0.7 ? "charge" : ag < 0.35 ? "flee" : "hide";
+      floats.push({ id: newId(), col, row: row - 0.2, text: mood === "charge" ? "!" : mood === "flee" ? "?!" : "…", color: mood === "charge" ? "#f87171" : "#e2e8f0", tick });
+    }
+    if (mood === "charge") { dcol = dx / d * spd * 1.4; drow = dy / d * spd * 1.4; if (d < 0.65) events.push({ type: "encounter", wild: c, how: "charge" }); }
+    else if (mood === "flee") { dcol = -dx / (d || 1) * spd * 1.5; drow = -dy / (d || 1) * spd * 1.5; }
+    else if (mood === "hide") {
+      const cv = nearestCover(map, col, row);
+      if (!cv) mood = "flee";
+      else {
+        const tx = cv.c + 0.5, ty = cv.r + 0.5, td = Math.hypot(tx - col, ty - row);
+        if (td < 0.3) { rustles = [...rustles.filter(x => !(x.c === cv.c && x.r === cv.r)), { c: cv.c, r: cv.r, species: c.species, wild: c, until: tick + 400 }]; return null; }
+        dcol = (tx - col) / td * spd * 1.3; drow = (ty - row) / td * spd * 1.3;
+      }
+    } else if (--wanderTimer <= 0) {
+      if (Math.random() < 0.4) { dcol = 0; drow = 0; } else { const a = Math.random() * Math.PI * 2; dcol = Math.cos(a) * spd; drow = Math.sin(a) * spd; }
+      wanderTimer = 40 + Math.random() * 100;
+    }
+    if (isPassable(map, col + dcol, row)) col += dcol; else { dcol = -dcol; wanderTimer = 0; }
+    if (isPassable(map, col, row + drow)) row += drow; else { drow = -drow; wanderTimer = 0; }
+    if (Math.hypot(pc - col, pr - row) > 18) return null; // wandered off
+    return { ...c, col, row, dcol, drow, wanderTimer, mood };
+  }).filter(Boolean);
+
+  // Stepping into cover: into a rustle there's surely something; elsewhere, now and then
+  const tileKey = Math.floor(pc) + "," + Math.floor(pr);
+  if (tileKey !== trip.lastTile && events.length === 0) {
+    const ru = rustles.find(x => x.c + "," + x.r === tileKey);
+    if (ru) {
+      const wd = ru.wild ? { ...ru.wild, col: pc + 0.6, row: pr } : wildAt(world, pc, pr, ru.species);
+      rustles = rustles.filter(x => x !== ru);
+      if (wd) events.push({ type: "encounter", wild: wd, how: "rustle" });
+    } else if (isCover(map, pc, pr) && Math.random() < 0.025) {
+      const wd = wildAt(world, pc, pr); if (wd) events.push({ type: "encounter", wild: wd, how: "surprise" });
+    }
+  }
+
+  return {
+    ...state, creatures, floats,
+    trip: { ...trip, player, wilds, rustles, lastTile: tileKey },
+    events: [...(state.events || []).slice(-30), ...events.map(e => ({ ...e, tick }))],
+    tick, clock: (state.clock || 0) + dtMs, world,
+    _encounter: events[0] || null,
+  };
+}
+
+// A resting spot you're standing at: your door, a spring, or a river shoal
+export function spotAt(state) {
+  const w = atlanta(), p = state.trip.player;
+  if (Math.hypot(w.door.c + 0.5 - p.col, w.door.r + 0.5 - p.row) < 1.8) return "door";
+  if (w.springs.some(s => Math.hypot(s.c + 0.5 - p.col, s.r + 0.5 - p.row) < 1.8)) return "spring";
+  if (w.tiles[Math.floor(p.row)]?.[Math.floor(p.col)] === "shoal") return "shoal";
+  return null;
+}
+// What Act would do here
+export function outsideAct(state) {
+  const p = state.trip.player;
+  const near = state.trip.wilds.map(c => ({ c, d: Math.hypot(c.col - p.col, c.row - p.row) })).filter(x => x.d < 1.6).sort((a, b) => a.d - b.d)[0];
+  if (near) return { kind: "battle", label: "Battle", wild: near.c };
+  const spot = spotAt(state);
+  if (spot === "door") return { kind: "home", label: "Go home" };
+  if (spot) return { kind: "rest", label: "Rest" };
+  return null;
+}
+// Where you can move creatures between your vine and your bag
+export function atSwapSpot(state) { return state.where !== "out" || !!spotAt(state); }
+export { AREA };

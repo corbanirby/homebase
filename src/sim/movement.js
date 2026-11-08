@@ -1,5 +1,5 @@
-import { COLS, ROWS, PLAYER_SPEED, PATH_SPEED_BONUS } from "../config.js";
-import { isPassable, isFast } from "../world/tiles.js";
+import { PLAYER_SPEED, PATH_SPEED_BONUS } from "../config.js";
+import { isPassable, isFast, isSlow } from "../world/tiles.js";
 
 // Player movement (each axis separately, so you slide along water and trees)
 export function movePlayer(player, input, creatures, map) {
@@ -7,7 +7,8 @@ export function movePlayer(player, input, creatures, map) {
   const { dx: idx, dy: idy } = input;
   // Soft collision: pushing through a creature slows you a little but never blocks you
   const pushing = creatures.some(c => !c.dead && Math.hypot(c.col - pc, c.row - pr) < 0.55);
-  const spd = PLAYER_SPEED * (isFast(map, pc, pr + 0.25) ? PATH_SPEED_BONUS : 1) * (pushing ? 0.7 : 1);
+  const spd = PLAYER_SPEED * (isFast(map, pc, pr + 0.25) ? PATH_SPEED_BONUS : 1) * (isSlow(map, pc, pr + 0.25) ? 0.6 : 1) * (pushing ? 0.7 : 1);
+  const COLS = map[0].length, ROWS = map.length;
   const nc = Math.max(0.3, Math.min(COLS - 0.3, pc + idx * spd));
   if (isPassable(map, nc, pr + 0.25)) pc = nc;
   const nr = Math.max(0.3, Math.min(ROWS - 0.1, pr + idy * spd));

@@ -25,7 +25,7 @@ export function makeResident({ col, row, sex, name, dna = null, species = "ramta
   dna = dna || randomDNA();
   const sp = SPECIES[species];
   return {
-    id: newId(), type: "creature", species, name, sex, col, row, dna, moves: deriveMoves(dna),
+    id: newId(), type: "creature", species, name, sex, col, row, dna, moves: deriveMoves(dna, sp.types),
     bornAt: clock, age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",
     fullness: 0.85 + Math.random() * 0.15, hp: 1, habitat: 1, level: 1, xp: 0,
     dcol: 0, drow: 0, wanderTimer: 0, state: "wander", targetId: null, biteTimer: 0, petAt: 0,
@@ -68,4 +68,18 @@ export function nextStageIn(c) {
   const i = STAGES.indexOf(lifeStage(c));
   if (i >= STAGES.length - 1) return null;
   return { stage: STAGES[i + 1], ms: Math.max(0, STAGES[i].until * c.maxAge - c.age) };
+}
+
+// A wild creature in the shared world: genes leaning the way its species does,
+// a level that rises the farther you go from your door, and any age.
+export function makeWild(species, col, row, level = 1, youngOnly = false) {
+  const sp = SPECIES[species];
+  const dna = randomDNA();
+  if (sp.temper) dna.aggression = sp.temper[0] + Math.random() * (sp.temper[1] - sp.temper[0]);
+  const c = makeResident({ col, row, species, dna, sex: Math.random() < 0.5 ? "F" : "M", name: null });
+  c.age = c.maxAge * (youngOnly ? 0.02 + Math.random() * 0.24 : 0.02 + Math.random() * 0.9);
+  c.stageId = lifeStage(c).id;
+  c.level = level; c.wild = true;
+  c.fullness = 0.7 + Math.random() * 0.3;
+  return c;
 }

@@ -29,10 +29,15 @@ export const TYPE_COLORS = {
   electric:"#f8d030", ice:"#98d8d8", poison:"#a040a0", rock:"#b8a038", dark:"#705848",
 };
 
-export function deriveMoves(dna) {
+// A first move that fits each type (move names and types are placeholders until stage 8)
+const TYPE_FIRST_MOVE = { Plant:"vinewhip", Water:"bubble", Fire:"ember", Electric:"spark", Poison:"poisonsting",
+  Earth:"rockthrow", Spirit:"bite", Metal:"harden", Bug:"scratch", Air:"growl", Normal:"tackle" };
+export function deriveMoves(dna, types = null) {
   const weak = MOVE_POOL.filter(m => m.type === "normal" && m.power > 0 && m.power <= 45);
   const pick = pool => pool[Math.floor(Math.random() * pool.length)];
-  return [pick(weak) || MOVE_POOL[0]];
+  const first = pick(weak) || MOVE_POOL[0];
+  const typed = (types || []).map(t => MOVE_POOL.find(m => m.id === TYPE_FIRST_MOVE[t])).find(m => m && m.id !== first.id);
+  return typed ? [first, typed] : [first];
 }
 
 export function learnMoveAtLevel(dna, level, knownMoves) {

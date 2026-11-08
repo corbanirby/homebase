@@ -42,12 +42,12 @@ export function StatusBadge({status}){
   return <span style={{background:color+"33",border:`1px solid ${color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color}}>{icon} {status}</span>;
 }
 
-export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp}){
+export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp,intro=null,canCatch=true}){
   const[phase,setPhase]=useState("player_turn");
   const[player,setPlayer]=useState(()=>makeBattler(playerCreature));
   const[enemy,setEnemy]=useState(()=>makeBattler(wildCreature));
   const[activeCreature,setActiveCreature]=useState(playerCreature); // tracks sprite
-  const[log,setLog]=useState(["A wild Lv"+(wildCreature.level||1)+" "+speciesOf(wildCreature).name+" appeared!"]);
+  const[log,setLog]=useState([intro||("A wild Lv"+(wildCreature.level||1)+" "+speciesOf(wildCreature).name+" appeared!")]);
   const[shakeP,setShakeP]=useState(false);
   const[shakeE,setShakeE]=useState(false);
   const[pending,setPending]=useState(null);
@@ -274,7 +274,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       {/* Battle field */}
       <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around",padding:"8px 16px"}}>
         <div style={{display:"flex",justifyContent:"flex-end",alignItems:"flex-end",gap:12}}>
-          <HpBar current={enemy.battleHp} max={enemy.maxHp} label="Wild" level={enemy.level}/>
+          <HpBar current={enemy.battleHp} max={enemy.maxHp} label={"Wild "+speciesOf(wildCreature).name} level={enemy.level}/>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
             <StatusBadge status={enemy.status}/>
             <BattleSprite creature={wildCreature} size={120} flipped={true} shake={shakeE}/>
@@ -286,7 +286,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
             <StatusBadge status={player.status}/>
             <BattleSprite creature={activeCreature} size={120} shake={shakeP}/>
           </div>
-          <HpBar current={player.battleHp} max={player.maxHp} label="Yours" level={player.level}/>
+          <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level}/>
         </div>
       </div>
 
@@ -317,9 +317,9 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
               ))}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-              <button onClick={tryCapture} onContextMenu={e=>e.preventDefault()}
-                style={{...btnStyle,background:"rgba(251,191,36,0.15)",border:"1.5px solid rgba(251,191,36,0.5)",borderRadius:8,padding:"7px 4px",color:"#fbbf24",fontSize:11}}>
-                ⚡ CATCH<br/><span style={{fontSize:9,opacity:0.8}}>({catchPct}%)</span>
+              <button onClick={tryCapture} disabled={!canCatch} onContextMenu={e=>e.preventDefault()}
+                style={{...btnStyle,background:"rgba(251,191,36,0.15)",border:"1.5px solid rgba(251,191,36,0.5)",borderRadius:8,padding:"7px 4px",color:"#fbbf24",fontSize:11,opacity:canCatch?1:0.4}}>
+                ⚡ CATCH<br/><span style={{fontSize:9,opacity:0.8}}>{canCatch?`(${catchPct}%)`:"(bag full)"}</span>
               </button>
               <button onClick={()=>setShowSwap(true)} onContextMenu={e=>e.preventDefault()}
                 style={{...btnStyle,background:"rgba(96,165,250,0.15)",border:"1.5px solid rgba(96,165,250,0.4)",borderRadius:8,padding:"7px 4px",color:"#60a5fa",fontSize:11}}>

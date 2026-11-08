@@ -1,17 +1,28 @@
 import { deriveMoves } from "./moves.js";
+import { lifeStage } from "../creatures/species.jsx";
+
+// Life stage strength (from the design doc): babies about 50%, adolescents 80%,
+// adults 100%, elders lose some strength and speed. Condition adds or takes up to 10%.
+const STAGE_POWER = { baby:0.5, adolescent:0.8, adult:1, elder:1 };
+function conditionFactor(c){
+  const food=Math.min(1,(c.fullness??1)/0.6);
+  const cond=Math.max(0,Math.min(1,food*0.5+(c.hp??1)*0.2+(c.habitat??1)*0.3));
+  return 0.9+cond*0.2;
+}
 
 // ─── Battle helpers ───────────────────────────────────────────────────────────
 export function makeBattler(c) {
   const lv=c.level||1;
-  const maxHp=Math.floor((20+lv*8+c.dna.size*10)*(c.dna.hpRange??1));
+  const st=lifeStage(c).id, k=(STAGE_POWER[st]||1)*conditionFactor(c), old=st==="elder"?0.85:1;
+  const maxHp=Math.max(6,Math.floor((20+lv*8+c.dna.size*10)*(c.dna.hpRange??1)*k));
   // If creature already has battleHp from a previous swap, use it.
   // Otherwise derive from world hp (0-1 float).
   const battleHp = c.battleHp!=null ? c.battleHp : Math.floor((c.hp||1)*maxHp);
   return { ...c, level:lv, moves:c.moves||deriveMoves(c.dna),
     maxHp, battleHp,
-    atk:Math.floor(5+lv*3+c.dna.strength*8),
-    def:Math.floor(3+lv*2+c.dna.size*5),
-    spd:Math.floor(3+lv*2+c.dna.speed*6),
+    atk:Math.max(1,Math.floor((5+lv*3+c.dna.strength*8)*k*old)),
+    def:Math.max(1,Math.floor((3+lv*2+c.dna.size*5)*k)),
+    spd:Math.max(1,Math.floor((3+lv*2+c.dna.speed*6)*k*old)),
     status:null, statMods:{atk:0,def:0,spd:0} };
 }
 export function applyStatMod(base,mod) {

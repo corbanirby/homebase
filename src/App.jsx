@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { TICK_MS } from "./config.js";
+import { TICK_MS, XP_PER_LEVEL } from "./config.js";
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
@@ -10,8 +10,12 @@ import { dnaColor } from "./creatures/dna.js";
 import { makePlayer } from "./creatures/factory.js";
 import { makeResident, pickName, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
 import { PLANT_SPECIES, GATHER_COOLDOWN_MS, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
-import { speciesOf, lifeStage, CreatureIcon } from "./creatures/species.jsx";
+import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { simulateHome } from "./sim/home.js";
+import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor } from "./sim/outside.js";
+import { atlanta, areaKey, BIOME_NAMES } from "./world/atlanta.js";
+import { learnMoveAtLevel, deriveMoves } from "./battle/moves.js";
+import { BattleScreen } from "./battle/BattleScreen.jsx";
 import DPad from "./ui/DPad.jsx";
 
 const ACT_DIST = 1.5; // how close you need to be to a creature to pet it
@@ -34,13 +38,31 @@ function withLand(report,stats,away,plantStats=null){
   return r;
 }
 
-// Everything that changes while you're away: land, plants, creatures
+// Everything that changes while you're away: land, plants, creatures.
+// While you're out in the shared world, only the ones you carry are with you; the
+// homebase is caught up when you walk back through the door.
 function advanceAway(state,land,away,speed){
   const ms=away*speed;
+  if(state.where==="out"){
+    const carried=new Set([...(state.vine||[]),...(state.trip?.bag||[])]);
+    return { state:{...state,clock:(state.clock||0)+ms,creatures:state.creatures.map(c=>carried.has(c.id)?ageCarried(c,Math.min(ms,30*DAY)):c)}, landStats:null, report:{awayMs:away,lines:[]} };
+  }
   const landStats=growLand(land,ms,plantEffects(state.plants));
   const caught=catchUp(state,land,ms);
   return { state:caught.state, landStats, report:withLand(caught.report,landStats,away,caught.plantStats) };
 }
+// Older saves and new worlds get the stage 4 fields
+const withTripFields=s=>({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1}});
+// Experience for creatures that fought but weren't out at the end
+function giveXp(c,xp){
+  const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
+  const nxp=(c.xp||0)+xp, nl=Math.floor(nxp/need)+1;
+  let moves=c.moves||[];
+  if(nl>(c.level||1)){ const m=learnMoveAtLevel(c.dna,nl,moves); if(m) moves=moves.length<4?[...moves,m]:[moves[0],...moves.slice(2),m]; }
+  return {...c,xp:nxp,level:Math.max(c.level||1,nl),moves};
+}
+const BAG_MAX=6;
+const FOOD_NAMES={bogmoss:"Moss clump",cattail:"Cattail shoots"};
 
 // A brand-new homebase: land, wild plants, and a pair of baby Ramtarugs next to you
 function makeNewWorld(){
@@ -53,7 +75,7 @@ function makeNewWorld(){
   const she=makeResident({...spots[0],sex:"F",name:pickName()});
   const he=makeResident({...spots[1],sex:"M",name:pickName([she.name])});
   const plants=startingPlants(land);
-  return { land, map, state:{ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3}, events:[], floats:[], tick:0, clock:0 } };
+  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3}, events:[], floats:[], tick:0, clock:0 }) };
 }
 
 const fmtAge=ms=>{ const d=Math.floor(ms/DAY), h=Math.floor((ms%DAY)/3600000); return d?`${d} ${d===1?"day":"days"}${h?" "+h+" h":""}`:`${h} ${h===1?"hour":"hours"}`; };
@@ -74,6 +96,9 @@ export default function Homebase(){
   const lastTileRef=useRef(new Map()); // the patch each walker was last on, for trampling
   const speedRef=useRef(timeSpeed()); // ?speed=N speeds up time for testing
   const focusRef=useRef(null);      // the creature the Act button would reach
+  const outGroundRef=useRef(null);  // painted ground for Atlanta
+  const battleRef=useRef(null);     // the battle in progress, if any
+  const partyRef=useRef([]);        // your creatures in the battle, lead first
   const[overlay,setOverlay]=useState(null); // null | "wet" | "temp" | "soil" | "veg"
   const overlayRef=useRef(null); overlayRef.current=overlay;
   // Zoom: buttons, pinch on the map, or the mouse wheel. Remembered in this browser.
@@ -87,6 +112,8 @@ export default function Homebase(){
   const onCanvasWheel=e=>{ setZoom(zoomRef.current*(e.deltaY<0?1.1:1/1.1)); };
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0});
+  // Test hook: with ?debug in the address, automated tests can steer and read the world
+  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef}; },[]);
 
   const[saveInfo,setSaveInfo]=useState(()=>readSave());
   const[screen,setScreen]=useState("title"); // title | game
@@ -99,10 +126,12 @@ export default function Homebase(){
   const[panel,setPanel]=useState(null);   // null | "creatures" | "bag"
   const[cardId,setCardId]=useState(null); // creature whose card is open
   const[renaming,setRenaming]=useState(null); // name being typed, or null
+  const[battle,setBattle]=useState(null);
+  const[party,setParty]=useState([]);
 
   const refreshUi=()=>{
     const s=stateRef.current; if(!s) return;
-    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{}}));
+    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:s.trip?.bag||[],where:s.where,plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{},food:s.food||{},atSwap:s.where==="out"?atSwapSpot(s):true}));
   };
 
   // Write the current world to this browser's storage
@@ -117,14 +146,14 @@ export default function Homebase(){
     const d=readSave(); if(!d) { setScreen("title"); return; }
     landRef.current=d.land;
     const away=Date.now()-(d.savedAt||Date.now());
-    const {state,report}=advanceAway({...d.state,seeds:d.state.seeds||{bogmoss:5,cattail:3},vine:d.state.vine||[],events:[],floats:[]},d.land,away,speedRef.current);
+    const {state,report}=advanceAway(withTripFields({...d.state,seeds:d.state.seeds||{bogmoss:5,cattail:3},vine:d.state.vine||[],events:[],floats:[]}),d.land,away,speedRef.current);
     const map=deriveMap(d.land);
     mapRef.current=map; groundRef.current=buildGround(map);
     stateRef.current=state; tickRef.current=0;
-    const maxId=[...state.creatures,...state.plants].reduce((m,e)=>Math.max(m,e.id||0),0);
+    const maxId=[...state.creatures,...state.plants,...(state.trip?.wilds||[])].reduce((m,e)=>Math.max(m,e.id||0),0);
     setNextId(Math.max(d.nextId||1,maxId+1));
     refreshUi();
-    if(report&&away>=60000) setAwayReport(report);
+    if(report&&away>=60000&&state.where!=="out") setAwayReport(report);
     setScreen("game");
   },[]);
 
@@ -148,7 +177,7 @@ export default function Homebase(){
         const {state,report,landStats}=advanceAway(stateRef.current,landRef.current,away,speedRef.current);
         if(landStats) landDirtyRef.current=true;
         stateRef.current=state; refreshUi();
-        if(report&&away>=60000) setAwayReport(report);
+        if(report&&away>=60000&&state.where!=="out") setAwayReport(report);
       }
     };
     document.addEventListener("visibilitychange",onVis);
@@ -207,13 +236,49 @@ export default function Homebase(){
     for(const c of s.creatures){ const d=Math.hypot(c.col-s.player.col,c.row-s.player.row); if(d<bd){bd=d;best=c;} }
     return best;
   };
+  // The mother plant is your door to the shared world
+  const nearMother=()=>{
+    const s=stateRef.current, map=mapRef.current; if(!s||!map) return false;
+    for(let r=0;r<map.length;r++) for(let c=0;c<map[0].length;c++) if(map[r][c]==="mother"&&Math.hypot(c+0.5-s.player.col,r+0.5-s.player.row)<1.9) return true;
+    return false;
+  };
+  // A grown plant next to you with enough on it to pick some food
+  const harvestable=()=>{
+    const s=stateRef.current; if(!s) return null;
+    return s.plants.filter(pl=>pl.stage===3&&pl.energy>=0.4).map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
+  };
   const actHint=()=>{
-    const c=nearestCreature(); if(c) return {kind:"pet",label:"Pet "+c.name,id:c.id};
-    if(gatherable()) return {kind:"gather",label:"Gather"};
+    const s=stateRef.current; if(!s) return null;
+    if(s.where==="out") return outsideAct(s);
+    const c=nearestCreature();
+    if(c&&Math.hypot(c.col-s.player.col,c.row-s.player.row)<1) return {kind:"pet",label:"Pet "+c.name,id:c.id};
+    if(nearMother()) return {kind:"out",label:"Go out"};
+    if(c) return {kind:"pet",label:"Pet "+c.name,id:c.id};
+    if(harvestable()) return {kind:"harvest",label:"Harvest"};
     return null;
   };
   const doAct=()=>{
-    const c=nearestCreature();
+    const s0=stateRef.current; if(!s0) return;
+    const hint=actHint();
+    if(s0.where==="out"){
+      if(!hint){ addFloat("Nothing to do here","#94a3b8",s0.trip.player); return; }
+      if(hint.kind==="battle"){ startBattle(hint.wild,"approach"); return; }
+      if(hint.kind==="home"){ goHome(); return; }
+      if(hint.kind==="rest"){
+        const carried=new Set([...(s0.vine||[]),...(s0.trip.bag||[])]);
+        stateRef.current={...s0,creatures:s0.creatures.map(c=>carried.has(c.id)?{...c,hp:1}:c)};
+        addFloat(spotAt(s0)==="spring"?"Your creatures rest at the spring":"Your creatures rest at the shoals","#93c5fd",s0.trip.player);
+        refreshUi(); setPanel("creatures"); return;
+      }
+      return;
+    }
+    if(hint?.kind==="out"){ goOut(); return; }
+    if(hint?.kind==="harvest"){
+      const pl=harvestable(); if(!pl) return;
+      stateRef.current={...s0,plants:s0.plants.map(p=>p.id===pl.id?{...p,energy:p.energy-0.35}:p),food:{...s0.food,[pl.species]:(s0.food?.[pl.species]||0)+1}};
+      addFloat("+1 "+FOOD_NAMES[pl.species],"#86efac"); refreshUi(); return;
+    }
+    const c=hint?.kind==="pet"?stateRef.current.creatures.find(o=>o.id===hint.id):null;
     if(c){
       const s=stateRef.current;
       stateRef.current={...s,creatures:s.creatures.map(o=>o.id===c.id?{...o,petAt:s.clock||0,dcol:0,drow:0,wanderTimer:40}:o)};
@@ -221,8 +286,132 @@ export default function Homebase(){
       refreshUi(); setCardId(c.id); setRenaming(null);
       return;
     }
-    if(gatherable()) { gatherSeeds(); return; }
     addFloat("Nothing to do here","#94a3b8");
+  };
+
+  // ── The door: out to Atlanta and back
+  const goOut=()=>{
+    const s=stateRef.current;
+    const vine=(s.vine||[]).filter(id=>s.creatures.some(c=>c.id===id));
+    if(!vine.length){ addFloat("Put a creature on your vine first","#facc15"); return; }
+    const now=Date.now();
+    stateRef.current={...s,where:"out",vine,trip:newTrip(now),world:regrowPops(s.world||makePops(),now,speedRef.current),floats:[]};
+    if(!outGroundRef.current) outGroundRef.current=buildGround(atlanta().tiles);
+    addFloat("Atlanta","#c8e6a0",stateRef.current.trip.player);
+    setPanel(null); setCardId(null); refreshUi(); saveNow();
+  };
+  const goHome=(beaten=false)=>{
+    const s=stateRef.current; if(!s||s.where!=="out") return;
+    const away=Date.now()-(s.trip.startedAt||Date.now());
+    const carried=new Set([...(s.vine||[]),...(s.trip.bag||[])]);
+    const homeOnly={...s,where:"home",creatures:s.creatures.filter(c=>!carried.has(c.id))};
+    const {state:adv,report,landStats}=advanceAway(homeOnly,landRef.current,away,speedRef.current);
+    if(landStats) landDirtyRef.current=true;
+    // The ones you carried come back through the door with you, and the bag empties into the homebase
+    const pl=s.player;
+    const back=s.creatures.filter(c=>carried.has(c.id)).map((c,i)=>{
+      const a=i/Math.max(1,carried.size)*Math.PI*2;
+      let col=pl.col+Math.cos(a)*1.1, row=pl.row+Math.sin(a)*0.8+0.4;
+      if(!isPassable(mapRef.current,col,row)){ col=pl.col; row=pl.row+0.5; }
+      return {...c,col,row,state:"wander",targetId:null,path:null,dcol:0,drow:0};
+    });
+    const newcomers=s.trip.bag.length;
+    stateRef.current={...adv,clock:s.clock,where:"home",trip:null,world:s.world,creatures:[...adv.creatures,...back],floats:[]};
+    const lines=[...(report?.lines||[])];
+    if(beaten) lines.unshift("Your creatures were beaten, so you hurried home. They'll recover here.");
+    if(newcomers) lines.unshift(`${newcomers} ${newcomers===1?"creature":"creatures"} from your bag moved into your homebase`);
+    if(away>=60000||beaten||newcomers) setAwayReport({awayMs:away,lines,title:"Back home"});
+    refreshUi(); saveNow();
+  };
+
+  // ── Battles out in the shared world
+  const startBattle=(wild,how)=>{
+    const s=stateRef.current; if(!s||battleRef.current) return;
+    const vineC=(s.vine||[]).map(id=>s.creatures.find(c=>c.id===id)).filter(Boolean);
+    const lead=vineC.findIndex(c=>(c.hp||0)>0.05);
+    const trip={...s.trip,wilds:s.trip.wilds.filter(w=>w.id!==wild.id)};
+    if(lead<0){
+      stateRef.current={...s,trip};
+      addFloat(`A wild ${speciesOf(wild).name} ${how==="charge"?"charged, but":"appeared, but"} your creatures are too hurt to battle. It ran off.`,"#facc15",s.trip.player);
+      return;
+    }
+    const ordered=[vineC[lead],...vineC.filter((_,i)=>i!==lead)];
+    partyRef.current=ordered; setParty(ordered);
+    stateRef.current={...s,trip};
+    const b={wild,how,key:Date.now()}; battleRef.current=b; setBattle(b);
+  };
+  const swapToFront=idx=>{
+    const p=[...partyRef.current]; const t=p[0]; p[0]=p[idx]; p[idx]=t;
+    partyRef.current=p; setParty(p);
+  };
+  const saveBattleHp=(idx,battleHp,maxHp)=>{
+    const p=[...partyRef.current];
+    if(p[idx]) p[idx]={...p[idx],battleHp,maxHp,hp:Math.max(0,battleHp/maxHp),fainted:battleHp<=0};
+    partyRef.current=p; setParty(p);
+  };
+  // Write what happened in the battle back onto your creatures (health, experience, moves)
+  const settleParty=(updates)=>{
+    const s=stateRef.current;
+    const byId=new Map(updates.map(u=>[u.id,u]));
+    stateRef.current={...s,creatures:s.creatures.map(c=>{ const u=byId.get(c.id); return u?{...c,hp:u.hp,xp:u.xp??c.xp,level:u.level??c.level,moves:u.moves??c.moves}:c; })};
+  };
+  const partyHp=c=>c.battleHp!=null&&c.maxHp?Math.max(c.fainted?0.05:0.05,c.battleHp/c.maxHp):(c.hp??1);
+  const endBattle=()=>{ battleRef.current=null; setBattle(null); lastFrameRef.current=0; accRef.current=0; };
+  const handleBattleEnd=(result,fp,partIds,xpEach)=>{
+    const p=partyRef.current, wild=battleRef.current?.wild;
+    endBattle();
+    const leadHp=result==="loss"?0.05:fp.battleHp!=null&&fp.maxHp?Math.max(0.05,fp.battleHp/fp.maxHp):Math.max(0.05,fp.hp||0.05);
+    const ups=p.map((c,i)=>{
+      if(i===0) return {...c,hp:leadHp,xp:fp.xp??c.xp,level:fp.level??c.level,moves:fp.moves??c.moves};
+      let u={...c,hp:partyHp(c)};
+      if(result==="win"&&xpEach&&partIds?.has?.(c.id)) u=giveXp(u,xpEach);
+      return u;
+    });
+    settleParty(ups);
+    const s=stateRef.current;
+    if(result==="loss"){
+      stateRef.current={...s,creatures:s.creatures.map(c=>(s.vine||[]).includes(c.id)?{...c,hp:Math.min(c.hp,0.1)}:c)};
+      goHome(true); return;
+    }
+    if(wild) addFloat(result==="win"?`The wild ${speciesOf(wild).name} ran off`:"You got away","#cbd5c0",s.trip.player);
+    refreshUi(); saveNow();
+  };
+  const handleBattleCapture=(caught,mine)=>{
+    const p=partyRef.current;
+    endBattle();
+    const leadHp=mine?.battleHp!=null&&mine?.maxHp?Math.max(0.05,mine.battleHp/mine.maxHp):p[0]?.hp??1;
+    settleParty(p.map((c,i)=>({...c,hp:i===0?leadHp:partyHp(c)})));
+    const s=stateRef.current;
+    const name=pickName(s.creatures.map(c=>c.name));
+    const pet={...caught,wild:false,name,mood:null,state:"wander",targetId:null,path:null,dcol:0,drow:0,battleHp:null,maxHp:undefined,
+      moves:caught.moves||deriveMoves(caught.dna,speciesOf(caught).types),habitat:1,petAt:0};
+    const toVine=(s.vine||[]).length<6;
+    const trip={...s.trip,bag:toVine?s.trip.bag:[...s.trip.bag,pet.id]};
+    stateRef.current={...s,creatures:[...s.creatures,pet],vine:toVine?[...s.vine,pet.id]:s.vine,trip,world:takeFromPop(s.world,caught.col,caught.row,caught.species)};
+    addFloat(`Caught a ${speciesOf(pet).name}! Meet ${name}${toVine?"":" (in your bag)"}`,"#86efac",s.trip.player);
+    refreshUi(); saveNow();
+  };
+
+  // ── Feeding the food you carry
+  const feedCreature=id=>{
+    const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
+    const kind=(SPECIES[c.species]?.eats||[]).find(k=>(s.food?.[k]||0)>0);
+    if(!kind){ addFloat("No food it eats in your bag","#facc15"); return; }
+    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.4)}:o)};
+    refreshUi(); saveNow();
+  };
+  // Out in the world, creatures move between vine and bag only at your door, springs and shoals
+  const moveBetween=id=>{
+    const s=stateRef.current; if(!s||s.where!=="out"||!atSwapSpot(s)) return;
+    const onVine=(s.vine||[]).includes(id), bag=s.trip.bag||[];
+    if(onVine){
+      if(bag.length>=BAG_MAX||s.vine.length<=1) return;
+      stateRef.current={...s,vine:s.vine.filter(v=>v!==id),trip:{...s.trip,bag:[...bag,id]}};
+    } else {
+      if(s.vine.length>=VINE_MAX) return;
+      stateRef.current={...s,vine:[...s.vine,id],trip:{...s.trip,bag:bag.filter(b=>b!==id)}};
+    }
+    refreshUi(); saveNow();
   };
 
   // ── Creatures: the vine is the (up to six) you'll take through the door
@@ -271,12 +460,28 @@ export default function Homebase(){
       if(!stateRef.current||!mapRef.current)return;
       const dt=lastFrameRef.current?Math.min(250,ts-lastFrameRef.current):0;
       lastFrameRef.current=ts;
-      if(!pausedRef.current){
+      if(!pausedRef.current&&!battleRef.current){
         accRef.current+=dt;
         while(accRef.current>=TICK_MS){
           accRef.current-=TICK_MS;
           tickRef.current++;
           const land=landRef.current;
+          // Out in Atlanta: the homebase waits, and is caught up when you go home
+          if(stateRef.current.where==="out"){
+            const next=simulateOutside(stateRef.current,tickRef.current,inputRef.current,TICK_MS*speedRef.current);
+            const enc=next._encounter; delete next._encounter;
+            stateRef.current=next;
+            if(enc){ startBattle(enc.wild,enc.how); break; }
+            if(tickRef.current%100===0) saveNow();
+            if(tickRef.current%6===0){
+              const sN=stateRef.current, act=outsideAct(sN), tp=sN.trip.player, w=atlanta();
+              focusRef.current=act?.kind==="battle"?act.wild.id:null;
+              const biome=w.biome[Math.floor(tp.row)]?.[Math.floor(tp.col)];
+              setUiState(u=>({...u,creatures:sN.creatures,vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},act,atSwap:atSwapSpot(sN),
+                place:{biome:BIOME_NAMES[biome]||"",lv:Math.min(10,1+Math.floor(distFromDoor(tp.col,tp.row)/14)),area:areaKey(tp.col,tp.row)}}));
+            }
+            continue;
+          }
           stateRef.current=simulateHome(stateRef.current,tickRef.current,inputRef.current,mapRef.current,land,TICK_MS*speedRef.current);
           // Walking wears the ground; enough wear makes a path
           const seen=lastTileRef.current, sNow=stateRef.current;
@@ -298,10 +503,17 @@ export default function Homebase(){
             const s=stateRef.current, pl=s.player, cell=land?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)];
             const here=cell?{wet:cell.wet,temp:cell.temp,soil:cell.soil,veg:cell.veg,trample:cell.trample,water:cell.water}:null;
             const act=actHint(); focusRef.current=act?.kind==="pet"?act.id:null;
-            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},garden:gardenInfo(),act}));
+            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:[],where:"home",plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},food:s.food||{},garden:gardenInfo(),act,atSwap:true}));
           }
         }
       } else accRef.current=0;
+      if(stateRef.current.where==="out"){
+        const sO=stateRef.current, z=zoomRef.current;
+        if(!outGroundRef.current) outGroundRef.current=buildGround(atlanta().tiles);
+        ctx.setTransform(dpr*z,0,0,dpr*z,0,0);
+        drawWorld(ctx,dims.W/z,dims.H/z,{player:sO.trip.player,creatures:sO.trip.wilds,plants:[],floats:sO.floats||[],rustles:sO.trip.rustles},atlanta().tiles,outGroundRef.current,tickRef.current,null,null,null,focusRef.current);
+        return;
+      }
       if(landDirtyRef.current&&ts-lastGroundRef.current>400){
         landDirtyRef.current=false; lastGroundRef.current=ts;
         const next=deriveMap(landRef.current);
@@ -386,17 +598,27 @@ export default function Homebase(){
     <div style={{background:"#0e0e0e",height:"100%",width:"100vw",display:"flex",flexDirection:"column",overflow:"hidden",fontFamily:"Georgia,serif",userSelect:"none"}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"5px 12px",flexShrink:0,background:"rgba(0,0,0,0.5)",borderBottom:"1px solid rgba(200,230,160,0.08)",height:36}}>
-        <span style={{color:"#c8e6a0",fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase"}}>Homebase</span>
+        <span style={{color:"#c8e6a0",fontSize:13,letterSpacing:"0.14em",textTransform:"uppercase"}}>{uiState.where==="out"?"Atlanta":"Homebase"}</span>
         <div style={{display:"flex",gap:10,marginLeft:"auto",alignItems:"center"}}>
           <span style={{color:"#4a6a32",fontSize:11}}>🐾 <span style={{color:"#86efac"}}>{creatures.length}</span></span>
-          <span style={{color:"#4a6a32",fontSize:11}}>🌿 <span style={{color:"#4ade80"}}>{uiState.plants}</span></span>
+          {uiState.where!=="out"&&<span style={{color:"#4a6a32",fontSize:11}}>🌿 <span style={{color:"#4ade80"}}>{uiState.plants}</span></span>}
           <span style={{color:"#6a8a52",fontSize:10,letterSpacing:"0.08em",opacity:Date.now()-lastSaved<2500?1:0,transition:"opacity 0.6s"}}>💾 saved</span>
           <span style={{color:"#6a8a52",fontSize:11,fontVariantNumeric:"tabular-nums"}}>Day {day}</span>
         </div>
       </div>
 
+      {/* Out in Atlanta: where you are and how strong the creatures are around here */}
+      {uiState.where==="out"&&(
+        <div style={{display:"flex",gap:6,padding:"3px 8px",height:30,flexShrink:0,background:"rgba(0,0,0,0.35)",alignItems:"center",overflowX:"auto"}}>
+          {[["📍",uiState.place?.biome||"Atlanta"],["⚔",`Around Lv${uiState.place?.lv||1}`],["🐾",`${creatures.filter(c=>vine.includes(c.id)&&c.hp>0.05).length}/${vine.length} ready`],["🎒",`${(uiState.bag||[]).length}/${BAG_MAX}`]].map(([icon,val])=>(
+            <div key={icon} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center",gap:4,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(200,230,160,0.12)",borderRadius:6,color:"#dbeac8",fontSize:11,padding:"3px 4px",whiteSpace:"nowrap"}}>
+              <span>{icon}</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{val}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {/* The patch you're standing on: tap one to see it across the land */}
-      <div style={{display:"flex",gap:6,padding:"3px 8px",height:30,flexShrink:0,background:"rgba(0,0,0,0.35)",alignItems:"center",overflowX:"auto"}}>
+      {uiState.where!=="out"&&<div style={{display:"flex",gap:6,padding:"3px 8px",height:30,flexShrink:0,background:"rgba(0,0,0,0.35)",alignItems:"center",overflowX:"auto"}}>
         {[
           ["wet","💧",uiState.here?Math.round(uiState.here.wet*100)+"%":"–","Wetness"],
           ["temp","🌡",uiState.here?Math.round(20+uiState.here.temp*80)+"°F":"–","Temperature"],
@@ -408,11 +630,11 @@ export default function Homebase(){
             <span>{icon}</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{val}</span>
           </button>
         ))}
-      </div>
+      </div>}
 
       {/* Canvas */}
       <div style={{position:"relative",flexShrink:0}}>
-        {overlay&&(
+        {overlay&&uiState.where!=="out"&&(
           <div style={{position:"absolute",top:6,left:6,zIndex:5,background:"rgba(0,0,0,0.65)",borderRadius:6,padding:"5px 8px",display:"flex",gap:8,flexWrap:"wrap",maxWidth:"calc(100% - 12px)",pointerEvents:"none"}}>
             {(overlay==="veg"?[["Bare","rgba(170,120,70,0.85)"],["Grass","rgba(150,200,90,0.85)"],["Tall","rgba(70,160,70,0.85)"],["Forest","rgba(20,90,40,0.9)"],["Path","rgba(220,180,120,0.9)"]]:overlay==="soil"?Object.entries(SOILS).map(([k,v])=>[v.label,SOIL_COLORS[k]]):overlay==="wet"?[["Dry","rgba(230,190,90,0.8)"],["Damp","rgba(90,170,220,0.8)"],["Waterlogged","rgba(40,90,220,0.9)"]]:[["Cool","rgba(80,140,230,0.8)"],["Mild","rgba(200,200,120,0.8)"],["Hot","rgba(230,90,60,0.8)"]]).map(([label,col])=>(
               <span key={label} style={{display:"flex",alignItems:"center",gap:4,color:"#e2e8f0",fontSize:10}}><span style={{width:9,height:9,borderRadius:2,background:col}}/>{label}</span>
@@ -436,7 +658,7 @@ export default function Homebase(){
 
       {/* Controls */}
       <div style={{flex:1,position:"relative",touchAction:"none",background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px max(12px, env(safe-area-inset-right, 0px)) max(28px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 0px))",gap:8,overflow:"hidden"}}>
-          {showSeeds&&(
+          {showSeeds&&uiState.where!=="out"&&(
           <div style={{position:"absolute",left:158,right:"max(8px, env(safe-area-inset-right, 0px))",top:8,bottom:"max(24px, calc(env(safe-area-inset-bottom, 0px) + 8px))",zIndex:6,background:"#0c100a",border:"1px solid rgba(134,239,172,0.3)",borderRadius:10,padding:"7px 8px",display:"flex",flexDirection:"column",gap:5,overflow:"hidden",touchAction:"manipulation"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{color:"#c8e6a0",fontSize:12,letterSpacing:"0.08em"}}>Seeds</span>
@@ -469,7 +691,7 @@ export default function Homebase(){
             <div style={{display:"flex",gap:8}}>
               <button onClick={doAct} onContextMenu={e=>e.preventDefault()} aria-label={uiState.act?.label||"Act"}
                 style={{...btnBase,width:96,height:52,background:uiState.act?"rgba(253,230,138,0.16)":"rgba(253,230,138,0.06)",border:"2px solid "+(uiState.act?"rgba(253,230,138,0.6)":"rgba(253,230,138,0.22)"),color:"#fde68a",fontWeight:"bold",borderRadius:14,flexDirection:"column",gap:2}}>
-                <span style={{fontSize:17}}>{uiState.act?.kind==="pet"?"🤚":uiState.act?.kind==="gather"?"🌾":"✋"}</span>
+                <span style={{fontSize:17}}>{{pet:"🤚",harvest:"🌾",out:"🚪",home:"🚪",battle:"⚔️",rest:"💧"}[uiState.act?.kind]||"✋"}</span>
                 <span style={{fontSize:10,maxWidth:88,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{uiState.act?.label||"ACT"}</span>
               </button>
               <button onClick={()=>{setPanel("creatures");refreshUi();}} onContextMenu={e=>e.preventDefault()} aria-label="Your creatures"
@@ -482,8 +704,8 @@ export default function Homebase(){
                 style={{...btnBase,width:58,height:40}}>
                 <span style={{fontSize:14}}>🎒</span>
               </button>
-              <button onClick={()=>{setShowSeeds(v=>!v);setUiState(u=>({...u,garden:gardenInfo(),seeds:stateRef.current?.seeds||{}}));}} onContextMenu={e=>e.preventDefault()} aria-label="Seeds"
-                style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1,background:showSeeds?"rgba(134,239,172,0.16)":btnBase.background,border:showSeeds?"1.5px solid rgba(134,239,172,0.5)":btnBase.border}}>
+              <button disabled={uiState.where==="out"} onClick={()=>{setShowSeeds(v=>!v);setUiState(u=>({...u,garden:gardenInfo(),seeds:stateRef.current?.seeds||{}}));}} onContextMenu={e=>e.preventDefault()} aria-label="Seeds"
+                style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1,opacity:uiState.where==="out"?0.35:1,background:showSeeds?"rgba(134,239,172,0.16)":btnBase.background,border:showSeeds?"1.5px solid rgba(134,239,172,0.5)":btnBase.border}}>
                 <span style={{fontSize:14}}>🌱</span><span style={{fontSize:9,color:"#86efac"}}>{Object.values(uiState.seeds||{}).reduce((a,b)=>a+b,0)}</span>
               </button>
               <button onClick={togglePause} onContextMenu={e=>e.preventDefault()} aria-label={uiState.paused?"Resume":"Pause"}
@@ -515,19 +737,24 @@ export default function Homebase(){
                 );
               })}
             </div>
-            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5,marginBottom:14}}>The creatures on your vine are the ones that will come with you through the door.</div>
-            <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>Living here</div>
+            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5,marginBottom:14}}>{uiState.where==="out"
+              ?(uiState.atSwap?"You're at a resting spot: open a creature's card to move it between your vine and your bag.":"You can move creatures between your vine and your bag at your door, a spring or the river shoals.")
+              :"The creatures on your vine are the ones that will come with you through the door."}</div>
+            <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>{uiState.where==="out"?`With you · bag ${(uiState.bag||[]).length}/${BAG_MAX}`:"Living here"}</div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {creatures.map(c=>{
+              {(uiState.where==="out"?creatures.filter(c=>vine.includes(c.id)||(uiState.bag||[]).includes(c.id)):creatures).map(c=>{
                 const v=conditionOf(c);
                 return(
                   <button key={c.id} onClick={()=>{setCardId(c.id);setRenaming(null);}}
                     style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid "+(vine.includes(c.id)?"rgba(134,239,172,0.35)":"#1e261a"),borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"left",fontFamily:"Georgia,serif",touchAction:"manipulation"}}>
                     <CreatureIcon c={c} size={40}/>
                     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}}>
-                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:"#86efac",fontSize:10}}> · on vine</span>}</div>
+                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:"#86efac",fontSize:10}}> · on vine</span>}{(uiState.bag||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · in bag</span>}</div>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                         <span style={{color:"#6b7a5e",fontSize:10,width:44}}>Fullness</span>{bar(c.fullness,c.fullness>=HUNGRY_AT?"#86efac":c.fullness>=WEAK_AT?"#facc15":"#f87171")}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{color:"#6b7a5e",fontSize:10,width:44}}>Health</span>{bar(c.hp,c.hp>0.5?"#86efac":c.hp>0.2?"#facc15":"#f87171")}
                       </div>
                     </div>
                     <span style={{color:condColor(v),fontSize:11,whiteSpace:"nowrap"}}>{conditionWord(c)}</span>
@@ -556,8 +783,24 @@ export default function Homebase(){
                 <span style={{color:"#86efac",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{uiState.seeds?.[id]||0}</span>
               </div>
             ))}
-            <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Items</div>
-            <div style={{color:"#4a5a3a",fontSize:12,lineHeight:1.5}}>Nothing yet. Things you find on your travels will go here.</div>
+            <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Food</div>
+            {Object.entries(FOOD_NAMES).map(([id,label])=>(
+              <div key={id} style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px"}}>
+                <span style={{fontSize:18}}>{PLANT_SPECIES[id].icon}</span>
+                <span style={{flex:1,color:"#e2e8f0",fontSize:13}}>{label}</span>
+                <span style={{color:"#86efac",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{uiState.food?.[id]||0}</span>
+              </div>
+            ))}
+            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Harvest food from grown plants at home with Act. Feed a creature from its card.</div>
+            <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Creatures · {(uiState.bag||[]).length}/{BAG_MAX}</div>
+            {(uiState.bag||[]).length?(
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {(uiState.bag||[]).map(id=>{ const c=creatures.find(o=>o.id===id); return c&&(
+                  <button key={id} onClick={()=>{setCardId(id);setRenaming(null);}} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,background:"#111611",border:"1px solid #2a3520",borderRadius:10,padding:"6px 8px",cursor:"pointer",touchAction:"manipulation"}}>
+                    <CreatureIcon c={c} size={36}/><span style={{color:"#cbd5c0",fontSize:10,fontFamily:"Georgia,serif"}}>{c.name}</span>
+                  </button>); })}
+              </div>
+            ):<div style={{color:"#4a5a3a",fontSize:12,lineHeight:1.5}}>Creatures you catch once your vine is full go here. They move into your homebase when you go home.</div>}
           </div>
         </div>
       )}
@@ -565,7 +808,7 @@ export default function Homebase(){
       {/* A creature's card */}
       {cardC&&(()=>{
         const c=cardC, st=lifeStage(c), nx=nextStageIn(c), v=conditionOf(c), onVine=vine.includes(c.id);
-        const cell=landRef.current?.cells[Math.floor(c.row)]?.[Math.floor(c.col)];
+        const cell=uiState.where==="out"?null:landRef.current?.cells[Math.floor(c.row)]?.[Math.floor(c.col)];
         return(
           <div data-scroll="" style={{...sheet,zIndex:120,background:"rgba(0,0,0,0.8)",justifyContent:"flex-end"}} onClick={e=>{ if(e.target===e.currentTarget){setCardId(null);setRenaming(null);} }}>
             <div style={{...column,padding:0,marginBottom:"max(12px, env(safe-area-inset-bottom, 0px))"}}>
@@ -587,7 +830,7 @@ export default function Homebase(){
                       </div>
                     )}
                     <div style={{color:"#8a9a7a",fontSize:12,marginTop:2}}>{speciesOf(c).name} · {st.label} · {fmtAge(c.age)} old</div>
-                    <div style={{color:"#5a6a4a",fontSize:11,marginTop:2}}>{nx?`${nx.stage.label} in ${formatDuration(nx.ms)}`:"In the last part of its life"}</div>
+                    <div style={{color:"#5a6a4a",fontSize:11,marginTop:2}}>{(speciesOf(c).types||[]).join(" / ")} · Lv{c.level||1} · {nx?`${nx.stage.label} in ${formatDuration(nx.ms)}`:"In the last part of its life"}</div>
                   </div>
                   <button onClick={()=>{setCardId(null);setRenaming(null);}} aria-label="Close" style={{...closeBtn,alignSelf:"flex-start"}}>✕</button>
                 </div>
@@ -610,21 +853,47 @@ export default function Homebase(){
                     </div>
                   ))}
                 </div>
+                {(()=>{ const kind=(SPECIES[c.species]?.eats||[]).find(k=>(uiState.food?.[k]||0)>0), n=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0);
+                  return <button onClick={()=>feedCreature(c.id)} disabled={!kind||c.fullness>=0.97}
+                    style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!kind||c.fullness>=0.97?0.45:1}}>
+                    🌿 {!kind?"No food it eats in your bag":c.fullness>=0.97?"Full":`Feed ${FOOD_NAMES[kind].toLowerCase()} (${n} left)`}
+                  </button>; })()}
+                {uiState.where==="out"?(()=>{ const inBag=(uiState.bag||[]).includes(c.id);
+                  const blocked=!uiState.atSwap||(inBag?vine.length>=VINE_MAX:((uiState.bag||[]).length>=BAG_MAX||vine.length<=1));
+                  return <button onClick={()=>moveBetween(c.id)} disabled={blocked}
+                    style={{...btnBase,touchAction:"manipulation",height:40,fontSize:13,opacity:blocked?0.45:1}}>
+                    {!uiState.atSwap?(inBag?"In your bag · swap at a resting spot":"On your vine · swap at a resting spot"):inBag?(vine.length>=VINE_MAX?"Your vine is full":"Move to your vine"):((uiState.bag||[]).length>=BAG_MAX?"Your bag is full":vine.length<=1?"Your last one on the vine":"Move to your bag")}
+                  </button>; })():
                 <button onClick={()=>toggleVine(c.id)} disabled={!onVine&&vine.length>=VINE_MAX}
                   style={{...btnBase,touchAction:"manipulation",height:40,fontSize:13,opacity:!onVine&&vine.length>=VINE_MAX?0.45:1,background:onVine?"rgba(134,239,172,0.14)":btnBase.background,border:"1.5px solid "+(onVine?"rgba(134,239,172,0.5)":"rgba(200,230,160,0.2)")}}>
                   {onVine?"On your vine · tap to take off":vine.length>=VINE_MAX?"Your vine is full (6)":`Put on your vine (${vine.length}/${VINE_MAX})`}
-                </button>
+                </button>}
               </div>
             </div>
           </div>
         );
       })()}
 
+      {/* Battle */}
+      {battle&&(
+        <BattleScreen key={battle.key}
+          playerCreature={party[0]}
+          wildCreature={battle.wild}
+          intro={battle.how==="charge"?`A wild ${speciesOf(battle.wild).name} charges at you!`:battle.how==="rustle"?`A wild ${speciesOf(battle.wild).name} jumps out of the cover!`:null}
+          canCatch={vine.length<VINE_MAX||(uiState.bag||[]).length<BAG_MAX}
+          onEnd={handleBattleEnd}
+          onCapture={handleBattleCapture}
+          battleInventory={party}
+          onSwapToFront={swapToFront}
+          onSaveBattleHp={saveBattleHp}
+        />
+      )}
+
       {/* While you were away */}
       {awayReport&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{width:"100%",maxWidth:320,background:"#141414",border:"1px solid #2a3520",borderRadius:12,padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
-            <div style={{color:"#c8e6a0",fontSize:15,letterSpacing:"0.08em"}}>While you were away</div>
+            <div style={{color:"#c8e6a0",fontSize:15,letterSpacing:"0.08em"}}>{awayReport.title||"While you were away"}</div>
             <div style={{color:"#6a7a5a",fontSize:12}}>{formatDuration(awayReport.awayMs)}</div>
             {awayReport.lines.length
               ?awayReport.lines.map((l,i)=><div key={i} style={{color:"#cbd5c0",fontSize:13,lineHeight:1.5}}>• {l}</div>)
