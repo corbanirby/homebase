@@ -5,16 +5,21 @@ import { useState, useEffect } from "react";
 // A creature shows as the species closest to its genes; with one species so far,
 // every creature is a Ramtarug.
 export const SPECIES = {
-  ramtarug: { no:1, name:"Ramtarug", path:"sprites/ramtarug" },
+  // lifespanDays: real days for a creature with average lifespan genes
+  // habitat.wet: [too dry below, ideal, too wet above] for the patch it stands on
+  // eats: plant species it grazes
+  ramtarug: { no:1, name:"Ramtarug", path:"sprites/ramtarug", lifespanDays:28,
+    habitat:{ wet:[0.22,0.55,0.95] }, eats:["bogmoss","cattail"] },
 };
 export const DIRS8 = ["east","south-east","south","south-west","west","north-west","north","north-east"];
 // Life stage by share of lifespan lived; scale shrinks the young since every
-// stage's art fills the same 96px frame.
+// stage's art fills the same 96px frame. For a 28-day Ramtarug that's about
+// 3 days a baby, 5 an adolescent, 16 an adult and 4 an elder.
 export const STAGES = [
-  { id:"baby",       until:0.15, scale:0.6 },
-  { id:"adolescent", until:0.35, scale:0.8 },
-  { id:"adult",      until:0.80, scale:1.0 },
-  { id:"elder",      until:Infinity, scale:1.0 },
+  { id:"baby",       until:0.107, scale:0.6, label:"Baby" },
+  { id:"adolescent", until:0.286, scale:0.8, label:"Adolescent" },
+  { id:"adult",      until:0.857, scale:1.0, label:"Adult" },
+  { id:"elder",      until:Infinity, scale:1.0, label:"Elder" },
 ];
 export function lifeStage(c){
   const f=(c.age||0)/(c.maxAge||1);

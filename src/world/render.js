@@ -142,7 +142,7 @@ export function cameraFor(player, W, H) {
 }
 
 // ─── Drawing ──────────────────────────────────────────────────────────────────
-export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, land = null, target = null) {
+export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, land = null, target = null, focusId = null) {
   const cam = cameraFor(state.player, W, H);
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#0e0e0e"; ctx.fillRect(0, 0, W, H);
@@ -165,7 +165,7 @@ export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, l
     else if (TILES[t]?.cover) items.push({ y: r + 0.98, draw: () => drawReeds(ctx, c, r, cam) });
   }
   for (const p of state.plants) items.push({ y: p.row, draw: () => drawPlant(ctx, p, cam) });
-  for (const cr of state.creatures) items.push({ y: cr.row, draw: () => drawCreature(ctx, cr, tick, cam) });
+  for (const cr of state.creatures) items.push({ y: cr.row, draw: () => drawCreature(ctx, cr, tick, cam, cr.id === focusId) });
   items.push({ y: state.player.row, draw: () => drawPlayer(ctx, state.player, cam) });
   items.sort((a, b) => a.y - b.y);
   for (const it of items) it.draw();
@@ -226,29 +226,35 @@ function drawPlant(ctx, p, cam) {
   }
   if (p.health < 0.6) { ctx.globalAlpha = 0.35; ctx.fillStyle = "#8a6a3a"; ctx.fillRect(x - 10, y - 20, 20, 20); ctx.globalAlpha = 1; }
 }
-function drawCreature(ctx, c, tick, cam) {
+function drawCreature(ctx, c, tick, cam, focused) {
   const x = c.col * TS - cam.x, footY = c.row * TS - cam.y + 6;
   const st = lifeStage(c), sp = speciesOf(c);
   const img = spriteImage(sp, st.id, facingOf(c));
   const h = 50 * c.dna.size * st.scale, r = h * 0.3;
-  if (c.capturable) {
-    ctx.globalAlpha = 0.2 + Math.sin(tick * 0.18) * 0.12; ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
-    ctx.beginPath(); ctx.ellipse(x, footY - 2, r * 1.3, r * 0.5, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+  if (focused) { // the creature the Act button would reach
+    ctx.globalAlpha = 0.55 + Math.sin(tick * 0.15) * 0.2; ctx.strokeStyle = "#fde68a"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(x, footY - 1, r * 1.35, r * 0.5, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
   }
   ctx.globalAlpha = 0.25; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(x, footY - 1, r * 0.95, r * 0.32, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
   const moving = Math.hypot(c.dcol, c.drow) > 0.004;
-  const bob = moving ? Math.round(Math.abs(Math.sin(tick * 0.25 + c.id)) * 1.5) : 0;
-  const top = footY - h - bob;
+  const weak = (c.fullness ?? 1) < 0.15;
+  const bob = moving ? Math.round(Math.abs(Math.sin(tick * 0.25 + c.id)) * 1.5) : c.state === "eat" ? Math.round(Math.abs(Math.sin(tick * 0.12)) * 2) : 0;
+  const top = footY - h + bob * (c.state === "eat" ? 1 : -1);
   if (img) {
+    if (weak) ctx.globalAlpha = 0.75;
     ctx.drawImage(img, Math.round(x - h / 2), Math.round(top), Math.round(h), Math.round(h));
-    if (c.state === "combat") { ctx.globalAlpha = 0.18 + Math.sin(tick * 0.4) * 0.1; ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.ellipse(x, top + h * 0.6, h * 0.42, h * 0.34, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; }
+    ctx.globalAlpha = 1;
   } else { ctx.fillStyle = dnaColor(c.dna, 55); ctx.beginPath(); ctx.arc(x, footY - r, r, 0, Math.PI * 2); ctx.fill(); }
-  const bw = Math.max(16, h * 0.5), bh = 3, bx = Math.round(x - bw / 2), by = Math.round(top + h * 0.1 - 7);
-  ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(bx, by, bw, bh);
-  ctx.fillStyle = c.hp > .6 ? "#4ade80" : c.hp > .3 ? "#facc15" : "#f87171"; ctx.fillRect(bx, by, bw * c.hp, bh);
-  ctx.fillStyle = "#fff"; ctx.font = "bold 9px Georgia"; ctx.textAlign = "center";
-  ctx.fillText("L" + (c.level || 1), x, footY + 10); ctx.textAlign = "left";
-  if (c.capturable) { ctx.font = "10px serif"; ctx.fillText("⚡", bx + bw + 1, by + 6); }
+  // Name under its feet, and a bubble when it's hungry or weak
+  ctx.font = "bold 9px Georgia"; ctx.textAlign = "center";
+  const label = (c.name || "") + (c.sex === "F" ? " ♀" : c.sex === "M" ? " ♂" : "");
+  ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillText(label, x + 1, footY + 11);
+  ctx.fillStyle = focused ? "#fde68a" : "#f1f5e8"; ctx.fillText(label, x, footY + 10);
+  if (weak || (c.fullness ?? 1) < 0.6) {
+    const by = Math.round(top + h * 0.15 - 6);
+    ctx.font = "11px serif"; ctx.fillText(weak ? "💤" : "🌿", x + h * 0.32, by);
+  }
+  ctx.textAlign = "left";
 }
 function drawPlayer(ctx, p, cam) {
   const x = Math.round(p.col * TS - cam.x), footY = Math.round(p.row * TS - cam.y + 6);

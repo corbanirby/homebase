@@ -1,12 +1,10 @@
 import { getNextId } from "./ids.js";
-import { landFromMap } from "../world/land.js";
-import { startingPlants } from "../plants/plants.js";
 
 // ─── Save / load (this browser only) ──────────────────────────────────────────
 // Version 3: the homebase is stored as land (conditions per patch), not tiles.
 // Version 2 was built around real-world time. `savedAt` is when the world was last
 // written; on load, the catch-up step runs for the time since then.
-export const SAVE_VERSION = 4; // v4: plant species and seeds
+export const SAVE_VERSION = 5; // v5: creatures live at home on real time (stage 3); older worlds start fresh
 const SAVE_KEY = "homebase-save-v2"; // key kept across versions; the version lives inside
 const OLD_KEYS = ["homebase-save-v1"];
 
@@ -17,16 +15,15 @@ export function readSave() {
   try {
     const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null;
     const d = migrate(JSON.parse(raw));
-    if (d && d.land && Array.isArray(d.land.cells) && d.state && Array.isArray(d.state.inventory)) return d;
+    if (d && d.land && Array.isArray(d.land.cells) && d.state && Array.isArray(d.state.creatures)) return d;
   } catch (e) { /* unreadable save */ }
   return null;
 }
 
 // Each future format change adds a step here, so old saves are upgraded instead of lost.
+// Version 5 changed what a creature is, so worlds from before it start fresh.
 function migrate(d) {
   if (!d || typeof d.v !== "number") return null;
-  if (d.v === 2 && Array.isArray(d.map)) { d = { ...d, v: 3, land: landFromMap(d.map) }; delete d.map; }
-  if (d.v === 3) d = { ...d, v: 4, state: { ...d.state, plants: startingPlants(d.land), seeds: { bogmoss: 5, cattail: 3 } } };
   if (d.v === SAVE_VERSION) return d;
   return null;
 }
