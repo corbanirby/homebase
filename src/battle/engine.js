@@ -1,5 +1,34 @@
 import { deriveMoves } from "./moves.js";
-import { lifeStage } from "../creatures/species.jsx";
+import { lifeStage, speciesOf } from "../creatures/species.jsx";
+
+// ─── Type chart (from the design doc's 13-type table, attacking side) ─────────
+// Each attack type lists what it hits for 2×, ½ and no effect. Matchups don't have
+// to mirror. Against a creature with two types, the two multipliers multiply.
+const T = (strong, weak, none = []) => ({ strong, weak, none });
+export const TYPE_CHART = {
+  Normal:   T([], ["Metal"], ["Spirit"]),
+  Fire:     T(["Plant","Bug","Ice","Metal","Fungus"], ["Water","Earth","Fire"]),
+  Water:    T(["Fire","Earth","Metal","Poison"], ["Plant","Water","Fungus","Ice"]),
+  Plant:    T(["Water","Earth"], ["Fire","Metal","Plant","Air","Bug"]),
+  Electric: T(["Water","Air","Metal"], ["Plant","Electric"], ["Earth"]),
+  Ice:      T(["Plant","Air","Earth"], ["Fire","Metal","Water","Ice"]),
+  Earth:    T(["Fire","Electric","Poison"], ["Water","Plant","Fungus","Bug"], ["Air"]),
+  Air:      T(["Bug","Plant"], ["Electric","Ice","Earth","Metal"]),
+  Bug:      T(["Plant","Fungus"], ["Fire","Air","Poison","Metal"]),
+  Poison:   T(["Plant","Bug","Water","Fungus"], ["Earth","Poison","Spirit"], ["Metal"]),
+  Metal:    T(["Ice"], ["Fire","Electric","Metal"]),
+  Spirit:   T(["Normal","Spirit"], ["Metal","Bug","Fungus","Plant"]),
+  Fungus:   T(["Plant","Bug"], ["Fire","Fungus","Air"]),
+};
+// Move types still use the old names until moves are renamed in stage 8
+const MOVE_TYPE = { normal:"Normal", fire:"Fire", water:"Water", grass:"Plant", electric:"Electric", ice:"Ice",
+  poison:"Poison", rock:"Earth", ground:"Earth", dark:"Spirit", ghost:"Spirit", bug:"Bug", flying:"Air", steel:"Metal" };
+export const moveType = m => MOVE_TYPE[m?.type] || "Normal";
+export function typeMultiplier(atkType, defTypes) {
+  const row = TYPE_CHART[atkType]; if (!row) return 1;
+  return (defTypes || []).reduce((k, t) => k * (row.none.includes(t) ? 0 : row.strong.includes(t) ? 2 : row.weak.includes(t) ? 0.5 : 1), 1);
+}
+export const SAME_TYPE_BONUS = 1.25; // using a move of your own type
 
 // Life stage strength (from the design doc): babies about 50%, adolescents 80%,
 // adults 100%, elders lose some strength and speed. Condition adds or takes up to 10%.
@@ -18,7 +47,7 @@ export function makeBattler(c) {
   // If creature already has battleHp from a previous swap, use it.
   // Otherwise derive from world hp (0-1 float).
   const battleHp = c.battleHp!=null ? c.battleHp : Math.floor((c.hp||1)*maxHp);
-  return { ...c, level:lv, moves:c.moves||deriveMoves(c.dna),
+  return { ...c, level:lv, moves:c.moves||deriveMoves(c.dna), types:speciesOf(c).types||["Normal"],
     maxHp, battleHp,
     atk:Math.max(1,Math.floor((5+lv*3+c.dna.strength*8)*k*old)),
     def:Math.max(1,Math.floor((3+lv*2+c.dna.size*5)*k)),
@@ -42,9 +71,14 @@ export function executeBattleMove(atk,def,move) {
   if (move.effect==="lower_def"){dc.statMods.def=Math.max(-3,dc.statMods.def-1);msgs.push("Foe's Defense fell!");}
   if (move.effect==="lower_spd"){dc.statMods.spd=Math.max(-3,dc.statMods.spd-1);msgs.push("Foe's Speed fell!");}
   if (move.power>0) {
+    const mt=moveType(move), k=typeMultiplier(mt,dc.types);
+    if (k===0) { msgs.push("It has no effect…"); return {newAttacker:ac,newDefender:dc,msgs}; }
+    const stab=(ac.types||[]).includes(mt)?SAME_TYPE_BONUS:1;
     const ea=applyStatMod(ac.atk,ac.statMods.atk), ed=applyStatMod(dc.def,dc.statMods.def);
-    const dmg=Math.max(1,Math.floor((ea/ed)*move.power*0.18*(0.85+Math.random()*0.15)));
+    const dmg=Math.max(1,Math.floor((ea/ed)*move.power*0.18*k*stab*(0.85+Math.random()*0.15)));
     dc.battleHp=Math.max(0,dc.battleHp-dmg); msgs.push("Hit for "+dmg+"!");
+    if (k>1) msgs.push(k>=4?"It's devastating!":"It's super effective!");
+    else if (k<1) msgs.push("It's not very effective…");
   }
   if (move.effect==="burn"&&!dc.status&&Math.random()<0.3){dc.status="burn";msgs.push("Burned!");}
   if (move.effect==="poison"&&!dc.status&&Math.random()<0.3){dc.status="poison";msgs.push("Poisoned!");}
