@@ -250,6 +250,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
 
   function handleSwap(idx){
     if(idx===0)return;
+    const c=battleInventory[idx]; if(!c||c.fainted||(c.hp||0)<=0.05)return;
     if(!claimTurn())return;
     setShowSwap(false);
     // Save current battler's HP back to inventory slot 0 before swapping
@@ -355,7 +356,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                     style={{...btnStyle,background:dnaColor(c.dna,15),border:`1.5px solid ${dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:"#e2e8f0",fontSize:11}}>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
                       <CreatureIcon c={c} size={22}/>
-                      <span>Lv{c.level||1}</span>
+                      <span>{c.name} · Lv{c.level||1}</span>
                     </div>
                     <div style={{width:50,height:3,background:"#222",borderRadius:2,marginTop:3}}>
                       <div style={{width:`${(c.hp||0)*100}%`,height:"100%",background:"#4ade80",borderRadius:2}}/>
@@ -370,22 +371,22 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
           <div>
             <div style={{color:"#60a5fa",fontSize:11,marginBottom:6}}>Choose a creature to send in (costs a turn):</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
-              {(battleInventory||[]).map((c,i)=>(
-                <button key={i}
-                  
+              {(battleInventory||[]).map((c,i)=>{ const out=i===0||c.fainted||(c.hp||0)<=0.05; return(
+                <button key={i} disabled={out}
                   onClick={()=>handleSwap(i)}
                   onContextMenu={e=>e.preventDefault()}
-                  style={{...btnStyle,background:i===0?"rgba(255,255,255,0.05)":dnaColor(c.dna,15),border:`1.5px solid ${i===0?"#333":dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:i===0?"#475569":"#e2e8f0",fontSize:11,opacity:i===0?0.5:1,cursor:i===0?"default":"pointer"}}>
+                  style={{...btnStyle,background:out?"rgba(255,255,255,0.05)":dnaColor(c.dna,15),border:`1.5px solid ${out?"#333":dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:out?"#475569":"#e2e8f0",fontSize:11,opacity:out?0.5:1,cursor:out?"default":"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",gap:5}}>
                     <CreatureIcon c={c} size={22}/>
-                    <span>Lv{c.level||1}</span>
-                    {i===0&&<span style={{fontSize:9,color:"#475569"}}>(active)</span>}
+                    <span>{c.name} · Lv{c.level||1}</span>
+                    {i===0&&<span style={{fontSize:9,color:"#475569"}}>(out now)</span>}
+                    {i!==0&&out&&<span style={{fontSize:9,color:"#f87171"}}>(fainted)</span>}
                   </div>
                   <div style={{width:50,height:3,background:"#222",borderRadius:2,marginTop:3}}>
                     <div style={{width:`${(c.hp||0)*100}%`,height:"100%",background:c.hp>.5?"#4ade80":"#f87171",borderRadius:2}}/>
                   </div>
                 </button>
-              ))}
+              );})}
             </div>
             <button onClick={()=>setShowSwap(false)} onContextMenu={e=>e.preventDefault()}
               style={{...btnStyle,background:"transparent",border:"1px solid #333",borderRadius:6,padding:"5px 12px",color:"#475569",fontSize:11}}>

@@ -421,6 +421,11 @@ export default function Homebase(){
     const next=vine.includes(id)?vine.filter(v=>v!==id):vine.length<VINE_MAX?[...vine,id]:vine;
     stateRef.current={...s,vine:next}; refreshUi(); saveNow();
   };
+  // The first creature on the vine leads into battle (or the first healthy one after it)
+  const makeLead=id=>{
+    const s=stateRef.current; if(!s||!(s.vine||[]).includes(id)) return;
+    stateRef.current={...s,vine:[id,...s.vine.filter(v=>v!==id)]}; refreshUi(); saveNow();
+  };
   const renameCreature=(id,name)=>{
     const clean=name.trim().slice(0,14); if(!clean) return;
     const s=stateRef.current;
@@ -730,10 +735,13 @@ export default function Homebase(){
               {Array.from({length:VINE_MAX}).map((_,i)=>{
                 const c=creatures.find(o=>o.id===vine[i]);
                 return(
-                  <button key={i} disabled={!c} onClick={()=>c&&(setCardId(c.id),setRenaming(null))} aria-label={c?c.name+", on your vine":"Empty vine slot"}
-                    style={{aspectRatio:"1",width:"100%",padding:0,borderRadius:"50%",background:c?dnaColor(c.dna,12):"#121612",border:"2px solid "+(c?"rgba(134,239,172,0.55)":"#1f2a1a"),display:"flex",alignItems:"center",justifyContent:"center",cursor:c?"pointer":"default",touchAction:"manipulation"}}>
-                    {c&&<CreatureIcon c={c} size={34}/>}
-                  </button>
+                  <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
+                    <button disabled={!c} onClick={()=>c&&(setCardId(c.id),setRenaming(null))} aria-label={c?c.name+(i===0?", your lead":", on your vine"):"Empty vine slot"}
+                      style={{aspectRatio:"1",width:"100%",padding:0,borderRadius:"50%",background:c?dnaColor(c.dna,12):"#121612",border:"2px solid "+(c?(i===0?"#fde68a":"rgba(134,239,172,0.55)"):"#1f2a1a"),display:"flex",alignItems:"center",justifyContent:"center",cursor:c?"pointer":"default",touchAction:"manipulation"}}>
+                      {c&&<CreatureIcon c={c} size={34}/>}
+                    </button>
+                    <span style={{fontSize:9,color:i===0?"#fde68a":"#6b7a5e",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{c?(i===0?"★ Lead":c.name):""}</span>
+                  </div>
                 );
               })}
             </div>
@@ -749,7 +757,7 @@ export default function Homebase(){
                     style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid "+(vine.includes(c.id)?"rgba(134,239,172,0.35)":"#1e261a"),borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"left",fontFamily:"Georgia,serif",touchAction:"manipulation"}}>
                     <CreatureIcon c={c} size={40}/>
                     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}}>
-                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:"#86efac",fontSize:10}}> · on vine</span>}{(uiState.bag||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · in bag</span>}</div>
+                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:vine[0]===c.id?"#fde68a":"#86efac",fontSize:10}}>{vine[0]===c.id?" · ★ lead":" · on vine"}</span>}{(uiState.bag||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · in bag</span>}</div>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                         <span style={{color:"#6b7a5e",fontSize:10,width:44}}>Fullness</span>{bar(c.fullness,c.fullness>=HUNGRY_AT?"#86efac":c.fullness>=WEAK_AT?"#facc15":"#f87171")}
                       </div>
@@ -853,6 +861,9 @@ export default function Homebase(){
                     </div>
                   ))}
                 </div>
+                {onVine&&(vine[0]===c.id
+                  ?<div style={{color:"#fde68a",fontSize:12,textAlign:"center"}}>★ Your lead: first into battle</div>
+                  :<button onClick={()=>makeLead(c.id)} style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,border:"1.5px solid rgba(253,230,138,0.45)",color:"#fde68a"}}>★ Make lead</button>)}
                 {(()=>{ const kind=(SPECIES[c.species]?.eats||[]).find(k=>(uiState.food?.[k]||0)>0), n=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0);
                   return <button onClick={()=>feedCreature(c.id)} disabled={!kind||c.fullness>=0.97}
                     style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!kind||c.fullness>=0.97?0.45:1}}>
