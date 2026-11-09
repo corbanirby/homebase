@@ -3,6 +3,7 @@ import { TICK_MS, XP_PER_LEVEL } from "./config.js";
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
+import { makeBattler } from "./battle/engine.js";
 import { isPassable } from "./world/tiles.js";
 import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./world/land.js";
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
@@ -83,6 +84,18 @@ function makeNewWorld(){
 }
 
 const fmtAge=ms=>{ const d=Math.floor(ms/DAY), h=Math.floor((ms%DAY)/3600000); return d?`${d} ${d===1?"day":"days"}${h?" "+h+" h":""}`:`${h} ${h===1?"hour":"hours"}`; };
+// Genes as words: where each value sits in its range (low, average or high)
+const GENES=[
+  ["size","Size",0.7,1.3,["Small","Average","Large"]],
+  ["strength","Strength",0.4,1.0,["Weak","Average","Strong"]],
+  ["speed","Speed",0.6,1.4,["Slow","Average","Fast"]],
+  ["hpRange","Toughness",0.5,1.5,["Fragile","Average","Tough"]],
+  ["lifespan","Lifespan",0.7,1.3,["Short","Average","Long"]],
+  ["metabolism","Appetite",0.4,1.6,["Light","Average","Big"]],
+  ["xpRate","Learning",0.5,1.5,["Quick","Average","Slow"]],
+  ["aggression","Temper",0.2,1.0,["Calm","Even","Bold"]],
+];
+const geneWord=(v,lo,hi,words)=>{ const t=(v-lo)/(hi-lo); return words[t<0.34?0:t>0.66?2:1]; };
 const condColor=v=>v>=0.85?"#86efac":v>=0.65?"#bef264":v>=0.45?"#facc15":"#f87171";
 
 export default function Homebase(){
@@ -430,6 +443,12 @@ export default function Homebase(){
     const s=stateRef.current; if(!s||!(s.vine||[]).includes(id)) return;
     stateRef.current={...s,vine:[id,...s.vine.filter(v=>v!==id)]}; refreshUi(); saveNow();
   };
+  // Order on the vine: if the lead faints, the next healthy one in line is sent in
+  const moveInVine=(id,dir)=>{
+    const s=stateRef.current; const v=[...(s?.vine||[])]; const i=v.indexOf(id), j=i+dir;
+    if(i<0||j<0||j>=v.length) return;
+    [v[i],v[j]]=[v[j],v[i]]; stateRef.current={...s,vine:v}; refreshUi(); saveNow();
+  };
   const renameCreature=(id,name)=>{
     const clean=name.trim().slice(0,14); if(!clean) return;
     const s=stateRef.current;
@@ -754,7 +773,9 @@ export default function Homebase(){
               :"The creatures on your vine are the ones that will come with you through the door."}</div>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>{uiState.where==="out"?`With you · bag ${(uiState.bag||[]).length}/${BAG_MAX}`:"Living here"}</div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {(uiState.where==="out"?creatures.filter(c=>vine.includes(c.id)||(uiState.bag||[]).includes(c.id)):creatures).map(c=>{
+              {(()=>{ const rank=c=>{ const i=vine.indexOf(c.id); if(i>=0) return i; const j=(uiState.bag||[]).indexOf(c.id); return j>=0?10+j:100; };
+                const list=uiState.where==="out"?creatures.filter(c=>vine.includes(c.id)||(uiState.bag||[]).includes(c.id)):creatures;
+                return [...list].sort((a,b)=>rank(a)-rank(b)); })().map(c=>{
                 const v=conditionOf(c);
                 return(
                   <button key={c.id} onClick={()=>{setCardId(c.id);setRenaming(null);}}
@@ -858,16 +879,37 @@ export default function Homebase(){
                     <span style={{color:"#cbd5c0",fontSize:11,width:92,textAlign:"right"}}>{word}</span>
                   </div>
                 ))}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"4px 10px"}}>
-                  {[["Size",c.dna.size],["Speed",c.dna.speed],["Lifespan",c.dna.lifespan],["Strength",c.dna.strength],["Appetite",c.dna.metabolism??1],["Temper",c.dna.aggression]].map(([k,val])=>(
-                    <div key={k} style={{display:"flex",justifyContent:"space-between",borderBottom:"1px solid #1c2418",paddingBottom:2}}>
-                      <span style={{color:"#5a6a4a",fontSize:10}}>{k}</span><span style={{color:"#9aa88a",fontSize:10,fontFamily:"monospace"}}>{val.toFixed(2)}</span>
+                {(()=>{ const b=makeBattler(c); return (
+                  <div>
+                    <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Battle stats · Lv{c.level||1} {st.label.toLowerCase()}</div>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                      {[["HP",b.maxHp],["Attack",b.atk],["Defense",b.def],["Speed",b.spd]].map(([k,v])=>(
+                        <div key={k} style={{background:"#0c110c",border:"1px solid #1c2418",borderRadius:8,padding:"4px 0",textAlign:"center"}}>
+                          <div style={{color:"#e2e8f0",fontSize:15,fontVariantNumeric:"tabular-nums"}}>{v}</div>
+                          <div style={{color:"#5a6a4a",fontSize:9}}>{k}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>); })()}
+                <div>
+                  <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Genes</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 14px"}}>
+                    {GENES.map(([key,label,lo,hi,words])=>(
+                      <div key={key} style={{display:"flex",justifyContent:"space-between",borderBottom:"1px solid #1c2418",paddingBottom:2}}>
+                        <span style={{color:"#5a6a4a",fontSize:11}}>{label}</span><span style={{color:"#b8c6a8",fontSize:11}}>{geneWord(c.dna[key]??1,lo,hi,words)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                {onVine&&(vine[0]===c.id
-                  ?<div style={{color:"#fde68a",fontSize:12,textAlign:"center"}}>★ Your lead: first into battle</div>
-                  :<button onClick={()=>makeLead(c.id)} style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,border:"1.5px solid rgba(253,230,138,0.45)",color:"#fde68a"}}>★ Make lead</button>)}
+                {onVine&&(()=>{ const i=vine.indexOf(c.id); return (
+                  <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                    {i===0
+                      ?<div style={{flex:1,color:"#fde68a",fontSize:12,textAlign:"center"}}>★ Your lead: first into battle</div>
+                      :<button onClick={()=>makeLead(c.id)} style={{...btnBase,flex:1,touchAction:"manipulation",height:36,fontSize:12,border:"1.5px solid rgba(253,230,138,0.45)",color:"#fde68a"}}>★ Make lead</button>}
+                    <button onClick={()=>moveInVine(c.id,-1)} disabled={i===0} aria-label="Move earlier on the vine" style={{...btnBase,touchAction:"manipulation",width:40,height:36,opacity:i===0?0.35:1}}>▲</button>
+                    <button onClick={()=>moveInVine(c.id,1)} disabled={i===vine.length-1} aria-label="Move later on the vine" style={{...btnBase,touchAction:"manipulation",width:40,height:36,opacity:i===vine.length-1?0.35:1}}>▼</button>
+                    <span style={{color:"#6b7a5e",fontSize:11,width:28,textAlign:"right"}}>{i+1}/{vine.length}</span>
+                  </div>); })()}
                 {(()=>{ const kind=(SPECIES[c.species]?.eats||[]).find(k=>(uiState.food?.[k]||0)>0), n=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0);
                   return <button onClick={()=>feedCreature(c.id)} disabled={!kind||c.fullness>=0.97}
                     style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!kind||c.fullness>=0.97?0.45:1}}>
