@@ -4,6 +4,7 @@ import { atlanta, areaKey, AREA } from "../world/atlanta.js";
 import { SPECIES, ATLANTA_SPECIES, lifeStage } from "../creatures/species.jsx";
 import { makeWild, DAY, STARVE_MS, HOUR } from "../creatures/resident.js";
 import { movePlayer } from "./movement.js";
+import { incubateCarried, hatchEgg } from "../creatures/breeding.js";
 
 // ─── Life in the shared world ─────────────────────────────────────────────────
 // Each 16×16 area keeps a number for each species, set by how much of the land
@@ -69,6 +70,7 @@ export function newTrip(now = Date.now()) {
 
 // Ages and hunger for the creatures you're carrying, for time that passes outside
 export function ageCarried(c, ms) {
+  if (c.isEgg) { const e = incubateCarried(c, ms); return e.incubation >= 1 ? hatchEgg(e) : e; }
   const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge });
   return { ...c, age, stageId: st.id, fullness: Math.max(0, c.fullness - ms / STARVE_MS * (c.dna.metabolism ?? 1)), hp: c.hp < 1 && c.hp > 0.05 ? Math.min(1, c.hp + ms / (24 * HOUR)) : c.hp };
 }
@@ -104,7 +106,8 @@ export function simulateOutside(state, tick, input, dtMs) {
   const creatures = state.creatures.map(c => {
     if (!carried.has(c.id)) return c;
     const n = ageCarried(c, dtMs);
-    if (n.stageId !== c.stageId) floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `${c.name} is now an ${lifeStage(n).label.toLowerCase()}!`, color: "#fde68a", tick });
+    if (c.isEgg && !n.isEgg) { floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `An egg hatched in your bag! Meet ${n.name}`, color: "#fde68a", tick }); return n; }
+    if (!c.isEgg && n.stageId !== c.stageId) floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `${c.name} is now an ${lifeStage(n).label.toLowerCase()}!`, color: "#fde68a", tick });
     return n;
   });
 

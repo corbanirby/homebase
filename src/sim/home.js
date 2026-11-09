@@ -46,7 +46,9 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
   const player = movePlayer(state.player, input, creatures, map);
   const clock = (state.clock || 0) + dtMs;
 
+  const byId = new Map(creatures.map(c => [c.id, c]));
   const moved = creatures.map(c => {
+    if (c.isEgg) return c; // eggs sit where they were laid
     let { col, row, dcol, drow, age, fullness, hp, habitat, wanderTimer, state: cs, targetId, biteTimer, stageId, path, stall = 0 } = c;
     // Growing up
     age += dtMs;
@@ -102,7 +104,11 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     if (cs === "wander") {
       if (--wanderTimer <= 0) {
         // Sometimes stop and stand a while, sometimes amble somewhere
-        if (Math.random() < 0.4 || weak) { dcol = 0; drow = 0; }
+        // A creature with a mate tends to drift back toward it
+        const mate = c.mateId != null ? byId.get(c.mateId) : null;
+        const md = mate ? Math.hypot(mate.col - col, mate.row - row) : 0;
+        if (mate && md > 3 && !weak && Math.random() < 0.6) { dcol = (mate.col - col) / md * spd; drow = (mate.row - row) / md * spd; }
+        else if (Math.random() < 0.4 || weak) { dcol = 0; drow = 0; }
         else { const a = Math.random() * Math.PI * 2; dcol = Math.cos(a) * spd; drow = Math.sin(a) * spd; }
         wanderTimer = 40 + Math.random() * 100;
       }

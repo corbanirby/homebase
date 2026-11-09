@@ -2,6 +2,7 @@ import { MAX_CATCHUP_MS } from "../config.js";
 import { growPlants } from "../plants/plants.js";
 import { SPECIES, lifeStage } from "../creatures/species.jsx";
 import { HOUR, STARVE_MS, HUNGRY_AT, WEAK_AT, habitatFit } from "../creatures/resident.js";
+import { stepBreeding, nestFinder } from "../creatures/breeding.js";
 
 // ─── Catch-up ─────────────────────────────────────────────────────────────────
 // Runs when you come back after the game was closed or hidden. Instead of
@@ -18,11 +19,15 @@ export function catchUp(state, land, ms) {
   const grew = [], weakNow = new Set();
   let meals = 0;
   let creatures = state.creatures.map(c => ({ ...c }));
+  const laid = [], hatched = [], paired = [];
+  const nest = nestFinder(land);
+  let t = state.clock || 0;
   for (let left = ms; left > 0; left -= HOUR) {
     const slice = Math.min(HOUR, left);
     const g = growPlants(plants, land, slice); plants = g.plants;
     for (const k in plantStats) plantStats[k] += g.stats[k];
     for (const c of creatures) {
+      if (c.isEgg) continue;
       c.age += slice;
       const st = lifeStage(c);
       if (st.id !== c.stageId) { c.stageId = st.id; grew.push(`${c.name} grew into ${st.id === "baby" ? "a" : "an"} ${st.label.toLowerCase()}`); }
@@ -46,9 +51,17 @@ export function catchUp(state, land, ms) {
       const cell = land?.cells[Math.floor(c.row)]?.[Math.floor(c.col)];
       c.habitat = habitatFit(c, cell) * 0.5 + (c.habitat ?? 1) * 0.5;
     }
+    // Pairs court, lay and eggs hatch
+    t += slice;
+    const b = stepBreeding(creatures, land, slice, t, { away: true, nest });
+    creatures = b.creatures;
+    for (const e of b.events) (e.type === "laid" ? laid : e.type === "hatched" ? hatched : paired).push(e);
   }
 
   const lines = [...grew];
+  for (const p of paired) lines.push(`${p.a} and ${p.b} paired up`);
+  for (const l of laid) lines.push(`${l.mother} laid ${l.n} ${l.n === 1 ? "egg" : "eggs"}`);
+  if (hatched.length) lines.push(`${hatched.length} ${hatched.length === 1 ? "egg" : "eggs"} hatched: ${hatched.map(h => h.name).join(", ")}`);
   if (meals) lines.push(`Your creatures grazed ${meals} ${meals === 1 ? "time" : "times"}`);
   if (weakNow.size) lines.push(`${[...weakNow].join(" and ")} ${weakNow.size === 1 ? "is" : "are"} weak from hunger. More plants would help.`);
   return { state: { ...state, plants, creatures, clock: (state.clock || 0) + ms }, report: { awayMs: ms, lines }, plantStats };

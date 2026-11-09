@@ -83,8 +83,18 @@ export function facingOf(c){
   }
   return facingById.get(c.id)||"south-east";
 }
+// A plain egg: the same for every species
+export function EggIcon({size=28}){
+  return <svg width={size} height={size} viewBox="0 0 24 24" aria-label="Egg" style={{flexShrink:0}}>
+    <ellipse cx="12" cy="13" rx="7.5" ry="9.5" fill="#2a2420"/>
+    <ellipse cx="12" cy="13" rx="6.3" ry="8.3" fill="#efe6cf"/>
+    <rect x="8.5" y="7" width="2.5" height="2.5" fill="#fffaf0"/>
+    <rect x="14" y="12" width="1.5" height="1.5" fill="#a08a6a"/><rect x="10" y="16" width="1.5" height="1.5" fill="#a08a6a"/><rect x="15" y="17" width="1.2" height="1.2" fill="#a08a6a"/>
+  </svg>;
+}
 export function CreatureIcon({c,size=28,dir="south-east"}){
   useSpritesLoaded();
+  if(c?.isEgg) return <div style={{width:size,height:size,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><EggIcon size={Math.round(size*0.7)}/></div>;
   const st=lifeStage(c), sp=speciesOf(c);
   const img=spriteImage(sp,st.id,dir);
   const px=Math.round(size*(0.75+0.25*st.scale));

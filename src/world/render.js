@@ -311,7 +311,21 @@ function drawPlant(ctx, p, cam) {
   }
   if (p.health < 0.6) { ctx.globalAlpha = 0.35; ctx.fillStyle = "#8a6a3a"; ctx.fillRect(x - 10, y - 20, 20, 20); ctx.globalAlpha = 1; }
 }
+// Every species' egg looks the same, so what's inside is a surprise. It rocks a little when it's nearly ready.
+function drawEgg(ctx, c, tick, cam, focused) {
+  const x = c.col * TS - cam.x, y = c.row * TS - cam.y + 4;
+  const rock = (c.incubation || 0) > 0.85 ? Math.sin(tick * 0.4 + c.id) * 0.18 : 0;
+  ctx.globalAlpha = 0.25; ctx.fillStyle = "#000"; ctx.beginPath(); ctx.ellipse(x, y + 1, 5, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rock);
+  ctx.fillStyle = "#2a2420"; ctx.beginPath(); ctx.ellipse(0, -6, 5.5, 7, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#efe6cf"; ctx.beginPath(); ctx.ellipse(0, -6, 4.5, 6, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#fffaf0"; ctx.fillRect(-2, -10, 2, 2);
+  ctx.fillStyle = "#a08a6a"; ctx.fillRect(1, -7, 1, 1); ctx.fillRect(-2, -4, 1, 1); ctx.fillRect(2, -3, 1, 1);
+  ctx.restore();
+  if (focused) { ctx.strokeStyle = "#fde68a"; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.6 + Math.sin(tick * 0.15) * 0.2; ctx.beginPath(); ctx.ellipse(x, y + 1, 8, 3, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+}
 function drawCreature(ctx, c, tick, cam, focused) {
+  if (c.isEgg) return drawEgg(ctx, c, tick, cam, focused);
   const x = c.col * TS - cam.x, footY = c.row * TS - cam.y + 6;
   const st = lifeStage(c), sp = speciesOf(c);
   const img = spriteImage(sp, st.id, facingOf(c));

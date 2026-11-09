@@ -6,7 +6,7 @@ export function movePlayer(player, input, creatures, map) {
   let { col: pc, row: pr, facing, moveAnim } = player;
   const { dx: idx, dy: idy } = input;
   // Soft collision: pushing through a creature slows you a little but never blocks you
-  const pushing = creatures.some(c => !c.dead && Math.hypot(c.col - pc, c.row - pr) < 0.55);
+  const pushing = creatures.some(c => !c.dead && !c.isEgg && Math.hypot(c.col - pc, c.row - pr) < 0.55);
   const spd = PLAYER_SPEED * (isFast(map, pc, pr + 0.25) ? PATH_SPEED_BONUS : 1) * (isSlow(map, pc, pr + 0.25) ? 0.6 : 1) * (pushing ? 0.7 : 1);
   const COLS = map[0].length, ROWS = map.length;
   const nc = Math.max(0.3, Math.min(COLS - 0.3, pc + idx * spd));
@@ -24,7 +24,7 @@ export function movePlayer(player, input, creatures, map) {
 export function softCollide(creatures, player, map) {
   const { col: pc, row: pr } = player;
   const crowd = creatures.map(c => {
-    if (c.dead) return c;
+    if (c.dead || c.isEgg) return c;
     let { col, row } = c;
     const dx = col - pc, dy = row - pr, d = Math.hypot(dx, dy);
     if (d < 0.7 && d > 0.0001) {
@@ -41,7 +41,7 @@ export function softCollide(creatures, player, map) {
     return col === c.col && row === c.row ? c : { ...c, col, row };
   });
   for (let i = 0; i < crowd.length; i++) for (let j = i + 1; j < crowd.length; j++) {
-    const a = crowd[i], b = crowd[j]; if (a.dead || b.dead) continue;
+    const a = crowd[i], b = crowd[j]; if (a.dead || b.dead || a.isEgg || b.isEgg) continue;
     const dx = b.col - a.col, dy = b.row - a.row, d = Math.hypot(dx, dy);
     if (d < 0.5 && d > 0.0001) {
       const k = (0.5 - d) * 0.25, ux = dx / d * k, uy = dy / d * k;

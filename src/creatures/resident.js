@@ -25,8 +25,11 @@ export function pickName(taken = []) {
 export function makeResident({ col, row, sex, name, dna = null, species = "ramtarug", clock = 0 }) {
   dna = dna || randomDNA();
   const sp = SPECIES[species];
+  // Two copies of every gene: the one that shows, and a hidden one it can pass on
+  const hidden = randomDNA(), genome = {}, shown = {};
+  for (const k of Object.keys(dna)) { genome[k] = [dna[k], hidden[k] ?? dna[k]]; shown[k] = 0; }
   return {
-    id: newId(), type: "creature", species, name, sex, col, row, dna, moves: deriveMoves(dna, sp.types),
+    id: newId(), type: "creature", species, name, sex, col, row, dna, genome, shown, generation: 1, moves: deriveMoves(dna, sp.types),
     bornAt: clock, age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",
     fullness: 0.85 + Math.random() * 0.15, hp: 1, habitat: 1, level: 1, xp: 0,
     dcol: 0, drow: 0, wanderTimer: 0, state: "wander", targetId: null, biteTimer: 0, petAt: 0,
@@ -78,6 +81,7 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
   const dna = randomDNA();
   if (sp.temper) dna.aggression = sp.temper[0] + Math.random() * (sp.temper[1] - sp.temper[0]);
   const c = makeResident({ col, row, species, dna, sex: Math.random() < 0.5 ? "F" : "M", name: null });
+  if (sp.temper) c.genome.aggression[1] = sp.temper[0] + Math.random() * (sp.temper[1] - sp.temper[0]);
   c.age = c.maxAge * (youngOnly ? 0.02 + Math.random() * 0.24 : 0.02 + Math.random() * 0.9);
   c.stageId = lifeStage(c).id;
   c.level = level; c.wild = true;
