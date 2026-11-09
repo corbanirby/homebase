@@ -1,6 +1,7 @@
 import { newId } from "../engine/ids.js";
 import { randomDNA } from "./dna.js";
-import { deriveMoves } from "../battle/moves.js";
+import { deriveMoves, learnMoveAtLevel } from "../battle/moves.js";
+import { XP_PER_LEVEL } from "../config.js";
 import { SPECIES, STAGES, lifeStage } from "./species.jsx";
 
 // ─── Creatures that live in your homebase ─────────────────────────────────────
@@ -82,4 +83,17 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
   c.level = level; c.wild = true;
   c.fullness = 0.7 + Math.random() * 0.3;
   return c;
+}
+
+// Bring a creature up to a level, with the experience and moves it would have picked up on the way
+export const STARTER_LEVEL = 5;
+export function raiseToLevel(c, level) {
+  if ((c.level || 1) >= level) return c;
+  let moves = c.moves || [];
+  for (let l = (c.level || 1) + 1; l <= level; l++) {
+    const m = learnMoveAtLevel(c.dna, l, moves);
+    if (m) moves = moves.length < 4 ? [...moves, m] : [moves[0], ...moves.slice(2), m];
+  }
+  const need = Math.floor(XP_PER_LEVEL * (c.dna.xpRate ?? 1));
+  return { ...c, level, xp: Math.max(c.xp || 0, (level - 1) * need), moves };
 }

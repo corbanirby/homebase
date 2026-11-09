@@ -8,7 +8,7 @@ import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./worl
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
 import { dnaColor } from "./creatures/dna.js";
 import { makePlayer } from "./creatures/factory.js";
-import { makeResident, pickName, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
+import { makeResident, pickName, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
 import { PLANT_SPECIES, GATHER_COOLDOWN_MS, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { simulateHome } from "./sim/home.js";
@@ -52,7 +52,10 @@ function advanceAway(state,land,away,speed){
   return { state:caught.state, landStats, report:withLand(caught.report,landStats,away,caught.plantStats) };
 }
 // Older saves and new worlds get the stage 4 fields
-const withTripFields=s=>({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1}});
+// Older saves: the starting Ramtarug pair is lifted to the starter level too
+// (once per save, so creatures born later aren't lifted)
+const liftStarters=s=>s.startersLifted?s:({...s,startersLifted:true,creatures:(s.creatures||[]).map(c=>c.species==="ramtarug"&&(c.level||1)<STARTER_LEVEL?raiseToLevel(c,STARTER_LEVEL):c)});
+const withTripFields=s=>liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1}});
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
   const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
@@ -72,8 +75,9 @@ function makeNewWorld(){
   const spots=[[1,0.6],[-1,0.6],[1,-0.6],[-1,-0.6],[0,1],[0,-1],[2,0],[-2,0]].map(([dc,dr])=>({col:player.col+dc,row:player.row+dr}))
     .filter(p=>isPassable(map,p.col,p.row));
   while(spots.length<2) spots.push({col:player.col+(Math.random()-0.5),row:player.row+0.6});
-  const she=makeResident({...spots[0],sex:"F",name:pickName()});
-  const he=makeResident({...spots[1],sex:"M",name:pickName([she.name])});
+  // The starting pair begins at level 5, so babies (at half strength) can hold their own outside
+  const she=raiseToLevel(makeResident({...spots[0],sex:"F",name:pickName()}),STARTER_LEVEL);
+  const he=raiseToLevel(makeResident({...spots[1],sex:"M",name:pickName([she.name])}),STARTER_LEVEL);
   const plants=startingPlants(land);
   return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3}, events:[], floats:[], tick:0, clock:0 }) };
 }
