@@ -13,6 +13,7 @@ import { makeResident, pickName, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUN
 import { PLANT_SPECIES, GATHER_COOLDOWN_MS, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate } from "./creatures/breeding.js";
+import { podName, podFit, fitLabel, bestPod, podsFromPlant, starterPods, STARTER_POD_SEEDS, POD_FOOD_MAX } from "./creatures/pods.js";
 import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor } from "./sim/outside.js";
@@ -48,7 +49,18 @@ function advanceAway(state,land,away,speed){
   const ms=away*speed;
   if(state.where==="out"){
     const carried=new Set([...(state.vine||[]),...(state.trip?.bag||[])]);
-    const aged={...state,clock:(state.clock||0)+ms,creatures:state.creatures.map(c=>carried.has(c.id)?ageCarried(c,Math.min(ms,30*DAY)):c)};
+    const inBag=new Set(state.trip?.bag||[]); let pods=state.pods||[];
+    const aged={...state,clock:(state.clock||0)+ms,creatures:state.creatures.map(c=>{
+      if(!carried.has(c.id)) return c;
+      let n=ageCarried(c,Math.min(ms,30*DAY),inBag.has(c.id));
+      // On the vine it eats the food packed in its pod as it gets hungry
+      const pod=pods.find(p=>p.creatureId===c.id);
+      if(!n.isEgg&&!inBag.has(c.id)&&pod&&pod.food>0&&(n.fullness<0.6||n.starving>0)){
+        const need=Math.min(pod.food,Math.ceil((0.6-n.fullness)/0.3)+(n.starving>0?1:0));
+        n={...n,fullness:Math.min(1,n.fullness+need*0.3),starving:0}; pods=pods.map(p=>p===pod?{...p,food:p.food-need}:p);
+      }
+      return n; })};
+    aged.pods=pods;
     const m=stepMortality(aged.creatures.filter(c=>carried.has(c.id)),Math.min(ms,30*DAY),{hungerCounted:true});
     const d=applyDeaths({...aged,creatures:[...aged.creatures.filter(c=>!carried.has(c.id)),...m.alive]},m.died,aged.clock,{leaveRemains:false});
     return { state:d.state, landStats:null, report:{awayMs:away,lines:d.lines} };
@@ -61,8 +73,15 @@ function advanceAway(state,land,away,speed){
 // Older saves: the starting Ramtarug pair is lifted to the starter level too
 // (once per save, so creatures born later aren't lifted)
 const liftStarters=s=>s.startersLifted?s:({...s,startersLifted:true,creatures:(s.creatures||[]).map(c=>c.species==="ramtarug"&&(c.level||1)<STARTER_LEVEL?raiseToLevel(c,STARTER_LEVEL):c)});
-const withTripFields=s=>liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
-  pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[],creatures:(s.creatures||[]).map(ensureGenome)});
+// Pods arrived in stage 7: older saves get a pod for each creature, some empty pods and pod seeds
+const withPods=s=>{
+  if(s.pods) return s;
+  const {pods,creatures}=starterPods(s.creatures||[]);
+  const byId=new Map(creatures.map(c=>[c.id,c]));
+  return {...s,pods,creatures:(s.creatures||[]).map(c=>byId.get(c.id)||c),seeds:{...STARTER_POD_SEEDS,...(s.seeds||{})}};
+};
+const withTripFields=s0=>{ const s=withPods({...s0,creatures:(s0.creatures||[]).map(ensureGenome)}); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+  pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
   const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
@@ -86,7 +105,7 @@ function makeNewWorld(){
   const she=raiseToLevel(makeResident({...spots[0],sex:"F",name:pickName()}),STARTER_LEVEL);
   const he=raiseToLevel(makeResident({...spots[1],sex:"M",name:pickName([she.name])}),STARTER_LEVEL);
   const plants=startingPlants(land);
-  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3}, events:[], floats:[], tick:0, clock:0 }) };
+  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3,...STARTER_POD_SEEDS}, events:[], floats:[], tick:0, clock:0 }) };
 }
 
 const fmtAge=ms=>{ const d=Math.floor(ms/DAY), h=Math.floor((ms%DAY)/3600000); return d?`${d} ${d===1?"day":"days"}${h?" "+h+" h":""}`:`${h} ${h===1?"hour":"hours"}`; };
@@ -154,7 +173,7 @@ export default function Homebase(){
 
   const refreshUi=()=>{
     const s=stateRef.current; if(!s) return;
-    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:s.trip?.bag||[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],where:s.where,plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{},food:s.food||{},atSwap:s.where==="out"?atSwapSpot(s):true}));
+    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:s.trip?.bag||[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],pods:s.pods||[],where:s.where,plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{},food:s.food||{},atSwap:s.where==="out"?atSwapSpot(s):true}));
   };
 
   // Write the current world to this browser's storage
@@ -268,7 +287,12 @@ export default function Homebase(){
   // A grown plant next to you with enough on it to pick some food
   const harvestable=()=>{
     const s=stateRef.current; if(!s) return null;
-    return s.plants.filter(pl=>pl.stage===3&&pl.energy>=0.6).map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
+    return s.plants.filter(pl=>pl.stage===3&&pl.energy>=0.6&&!PLANT_SPECIES[pl.species]?.pod).map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
+  };
+  // A ripe marsh pod plant next to you
+  const pickable=()=>{
+    const s=stateRef.current; if(!s) return null;
+    return s.plants.filter(pl=>pl.stage===3&&PLANT_SPECIES[pl.species]?.pod).map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
   };
   const actHint=()=>{
     const s=stateRef.current; if(!s) return null;
@@ -280,6 +304,7 @@ export default function Homebase(){
     if(c&&!c.isEgg&&Math.hypot(c.col-s.player.col,c.row-s.player.row)<1) return look;
     if(nearMother()) return {kind:"out",label:"Go out"};
     if(c) return look;
+    if(pickable()) return {kind:"pick",label:"Pick pods"};
     if(harvestable()) return {kind:"harvest",label:"Harvest"};
     const r=(s.remains||[]).find(r=>Math.hypot(r.col-s.player.col,r.row-s.player.row)<1.3);
     if(r) return {kind:"remains",label:"Remains",name:r.name};
@@ -301,6 +326,12 @@ export default function Homebase(){
       return;
     }
     if(hint?.kind==="out"){ goOut(); return; }
+    if(hint?.kind==="pick"){
+      const pl=pickable(); if(!pl) return;
+      const got=podsFromPlant(pl,landRef.current?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)]);
+      stateRef.current={...s0,pods:[...(s0.pods||[]),...got],plants:s0.plants.map(p=>p.id===pl.id?{...p,stage:2,growth:0}:p)};
+      addFloat(`+${got.length} ${podName(got[0]).toLowerCase()}${got.length>1?"s":""}`,"#d9e6a0"); refreshUi(); saveNow(); return;
+    }
     if(hint?.kind==="remains"){ addFloat(`The remains of ${hint.name}. The plants here are doing well.`,"#cbd5c0"); return; }
     if(hint?.kind==="setdown"){
       const p=s0.player, [dc,dr]={up:[0,-0.7],down:[0,0.7],left:[-0.7,0],right:[0.7,0]}[p.facing]||[0,0.7];
@@ -414,7 +445,8 @@ export default function Homebase(){
     if(wild) addFloat(result==="win"?`The wild ${speciesOf(wild).name} ran off`:"You got away","#cbd5c0",s.trip.player);
     refreshUi(); saveNow();
   };
-  const handleBattleCapture=(caught,mine)=>{
+  const breakPod=podId=>{ const s=stateRef.current; stateRef.current={...s,pods:(s.pods||[]).filter(p=>p.id!==podId)}; refreshUi(); };
+  const handleBattleCapture=(caught,mine,podId)=>{
     const p=partyRef.current;
     endBattle();
     const leadHp=mine?.battleHp!=null&&mine?.maxHp?Math.max(0.05,mine.battleHp/mine.maxHp):p[0]?.hp??1;
@@ -425,9 +457,38 @@ export default function Homebase(){
       moves:caught.moves||deriveMoves(caught.dna,speciesOf(caught).types),habitat:1,petAt:0};
     const toVine=(s.vine||[]).length<6;
     const trip={...s.trip,bag:toVine?s.trip.bag:[...s.trip.bag,pet.id]};
-    stateRef.current={...s,creatures:[...s.creatures,pet],vine:toVine?[...s.vine,pet.id]:s.vine,trip,world:takeFromPop(s.world,caught.col,caught.row,caught.species)};
+    // The pod it stepped into becomes its own (or one just like it, if that one is gone)
+    const chosen=(s.pods||[]).find(p=>p.id===podId&&p.creatureId==null), any=(s.pods||[]).find(p=>p.creatureId==null);
+    const want=chosen||(s.pods||[]).find(p=>p.creatureId==null&&p.size===chosen?.size)||any;
+    stateRef.current={...s,creatures:[...s.creatures,pet],vine:toVine?[...s.vine,pet.id]:s.vine,trip,world:takeFromPop(s.world,caught.col,caught.row,caught.species),
+      pods:(s.pods||[]).map(p=>p.id===want?.id?{...p,creatureId:pet.id}:p)};
     addFloat(`Caught a ${speciesOf(pet).name}! Meet ${name}${toVine?"":" (in your bag)"}`,"#86efac",s.trip.player);
     refreshUi(); saveNow();
+  };
+
+  // ── Pods: give a creature a pod, pack food in it, or release a creature in the wild
+  const givePod=id=>{
+    const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
+    const pod=bestPod(s.pods||[],c.species); if(!pod){ addFloat("No empty pods","#facc15"); return; }
+    stateRef.current={...s,pods:s.pods.map(p=>p.id===pod.id?{...p,creatureId:id}:p)}; refreshUi(); saveNow();
+  };
+  const addPodFood=id=>{
+    const s=stateRef.current, c=s.creatures.find(o=>o.id===id), pod=(s.pods||[]).find(p=>p.creatureId===id); if(!c||!pod||pod.food>=POD_FOOD_MAX) return;
+    const kind=(SPECIES[c.species]?.eats||[]).find(k=>(s.food?.[k]||0)>0); if(!kind){ addFloat("No food it eats in your bag","#facc15"); return; }
+    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},pods:s.pods.map(p=>p.id===pod.id?{...p,food:p.food+1}:p)}; refreshUi(); saveNow();
+  };
+  const[confirmRelease,setConfirmRelease]=useState(null);
+  const releaseCreature=id=>{
+    const s=stateRef.current; if(!s||s.where!=="out") return;
+    const c=s.creatures.find(o=>o.id===id); if(!c||c.isEgg) return;
+    if((s.vine||[]).length<=1&&(s.vine||[]).includes(id)){ addFloat("You need at least one creature on your vine","#facc15",s.trip.player); return; }
+    const d=applyDeaths(s,[{c,cause:"released"}],s.clock||0,{leaveRemains:false});
+    const tp=s.trip.player;
+    // In Atlanta it joins the local numbers (it only lasts there if the land suits it)
+    const world=SPECIES[c.species]?.biomes?{...s.world,pops:{...s.world.pops,[areaKey(tp.col,tp.row)]:{...s.world.pops[areaKey(tp.col,tp.row)],[c.species]:(s.world.pops[areaKey(tp.col,tp.row)]?.[c.species]||0)+1}}}:s.world;
+    stateRef.current={...d.state,world};
+    addFloat(`${c.name} runs off into the wild. Its pod is empty again.`,"#cbd5c0",tp);
+    setCardId(null); setConfirmRelease(null); refreshUi(); saveNow();
   };
 
   // ── Feeding the food you carry
@@ -455,8 +516,14 @@ export default function Homebase(){
 
   // ── Creatures: the vine is the (up to six) you'll take through the door
   const toggleVine=id=>{
-    const s=stateRef.current; if(!s) return;
-    if(s.creatures.find(c=>c.id===id)?.isEgg) return;
+    let s=stateRef.current; if(!s) return;
+    const c=s.creatures.find(o=>o.id===id); if(!c||c.isEgg) return;
+    // A creature needs its own pod to ride on the vine: give it your best-fitting empty one
+    if(!(s.vine||[]).includes(id)&&!(s.pods||[]).some(p=>p.creatureId===id)){
+      const pod=bestPod(s.pods||[],c.species);
+      if(!pod){ addFloat("No empty pod for it. Grow marsh pods to get more.","#facc15"); refreshUi(); return; }
+      s={...s,pods:s.pods.map(p=>p.id===pod.id?{...p,creatureId:id}:p)}; stateRef.current=s;
+    }
     const vine=s.vine||[];
     const next=vine.includes(id)?vine.filter(v=>v!==id):vine.length<VINE_MAX?[...vine,id]:vine;
     stateRef.current={...s,vine:next}; refreshUi(); saveNow();
@@ -565,7 +632,7 @@ export default function Homebase(){
               const sN=stateRef.current, act=outsideAct(sN), tp=sN.trip.player, w=atlanta();
               focusRef.current=act?.kind==="battle"?act.wild.id:null;
               const biome=w.biome[Math.floor(tp.row)]?.[Math.floor(tp.col)];
-              setUiState(u=>({...u,creatures:sN.creatures,remembered:sN.remembered||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},act,atSwap:atSwapSpot(sN),
+              setUiState(u=>({...u,creatures:sN.creatures,remembered:sN.remembered||[],pods:sN.pods||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},act,atSwap:atSwapSpot(sN),
                 place:{biome:BIOME_NAMES[biome]||"",lv:Math.min(10,1+Math.floor(distFromDoor(tp.col,tp.row)/14)),area:areaKey(tp.col,tp.row)}}));
             }
             continue;
@@ -616,7 +683,7 @@ export default function Homebase(){
             const s=stateRef.current, pl=s.player, cell=land?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)];
             const here=cell?{wet:cell.wet,temp:cell.temp,soil:cell.soil,veg:cell.veg,trample:cell.trample,water:cell.water}:null;
             const act=actHint(); focusRef.current=act?.kind==="pet"?act.id:null;
-            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],where:"home",plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},food:s.food||{},garden:gardenInfo(),act,atSwap:true}));
+            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],pods:s.pods||[],where:"home",plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},food:s.food||{},garden:gardenInfo(),act,atSwap:true}));
           }
         }
       } else accRef.current=0;
@@ -942,6 +1009,15 @@ export default function Homebase(){
               </div>
             ))}
             <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Harvest food from grown plants at home with Act. Feed a creature from its card.</div>
+            <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Empty pods</div>
+            {(()=>{ const groups={}; for(const p of (uiState.pods||[]).filter(p=>p.creatureId==null)){ const k=podName(p); groups[k]=(groups[k]||0)+1; }
+              const keys=Object.keys(groups);
+              return keys.length?keys.map(k=>(
+                <div key={k} style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px"}}>
+                  <span style={{fontSize:18}}>🫛</span><span style={{flex:1,color:"#e2e8f0",fontSize:13}}>{k}</span>
+                  <span style={{color:"#d9e6a0",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{groups[k]}</span>
+                </div>)):<div style={{color:"#4a5a3a",fontSize:12}}>None. Grow marsh pod plants at home and pick them with Act.</div>; })()}
+            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>You catch with empty pods; they don't take space in your bag. A pod that suits the creature (its size, and its kind of land) works better.</div>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Creatures · {(uiState.bag||[]).length}/{BAG_MAX}</div>
             {(uiState.bag||[]).length?(
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -1098,6 +1174,30 @@ export default function Homebase(){
                     ))}
                   </div>
                 </div>
+                {(()=>{ const pod=(uiState.pods||[]).find(p=>p.creatureId===c.id), empties=(uiState.pods||[]).filter(p=>p.creatureId==null).length;
+                  const foodN=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0), out=uiState.where==="out";
+                  return (
+                  <div>
+                    <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Pod</div>
+                    {pod?(
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{flex:1,color:"#cbd5c0",fontSize:12}}>🫛 {podName(pod)} <span style={{color:"#6b7a5e"}}>· food {pod.food}/{POD_FOOD_MAX}</span></span>
+                        <button onClick={()=>addPodFood(c.id)} disabled={pod.food>=POD_FOOD_MAX||!foodN} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:pod.food>=POD_FOOD_MAX||!foodN?0.45:1}}>+ Pack food</button>
+                      </div>
+                    ):(
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{flex:1,color:"#8a9a7a",fontSize:12}}>No pod yet. It needs one to go on your vine.</span>
+                        {!out&&<button onClick={()=>givePod(c.id)} disabled={!empties} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:empties?1:0.45}}>{empties?"Give it a pod":"No empty pods"}</button>}
+                      </div>
+                    )}
+                    {pod&&<div style={{color:"#4a5a3a",fontSize:11,marginTop:3,lineHeight:1.4}}>On your vine it eats packed food by itself when it gets hungry.</div>}
+                    {out&&(confirmRelease===c.id
+                      ?<div style={{display:"flex",gap:6,marginTop:6}}>
+                        <button onClick={()=>releaseCreature(c.id)} style={{...btnBase,flex:1,touchAction:"manipulation",height:34,fontSize:12,background:"rgba(248,113,113,0.14)",border:"1.5px solid rgba(248,113,113,0.5)",color:"#fca5a5"}}>Yes, release {c.name} here</button>
+                        <button onClick={()=>setConfirmRelease(null)} style={{...btnBase,touchAction:"manipulation",height:34,fontSize:12,padding:"0 12px"}}>Keep</button>
+                      </div>
+                      :<button onClick={()=>setConfirmRelease(c.id)} style={{...btnBase,width:"100%",marginTop:6,touchAction:"manipulation",height:32,fontSize:12,color:"#cbd5c0"}}>Release into the wild here</button>)}
+                  </div>); })()}
                 {(()=>{ const mom=known(c.motherId), dad=known(c.fatherId), mate=c.mateId!=null?creatures.find(o=>o.id===c.mateId):null;
                   const kids=[...creatures,...remembered].filter(o=>o.motherId===c.id||o.fatherId===c.id), eggs=kids.filter(o=>o.isEgg).length;
                   const link=o=>o?<button onClick={()=>{setCardId(o.id);setChoosingMate(false);}} style={{background:"none",border:"none",padding:0,color:o.dead?"#9aa88a":"#c8e6a0",fontFamily:"Georgia,serif",fontSize:12,textDecoration:"underline",cursor:"pointer"}}>{o.name}{o.dead?" †":""}</button>:<span style={{color:"#6b7a5e"}}>unknown</span>;
@@ -1166,6 +1266,9 @@ export default function Homebase(){
           wildCreature={battle.wild}
           intro={battle.how==="charge"?`A wild ${speciesOf(battle.wild).name} charges at you!`:battle.how==="rustle"?`A wild ${speciesOf(battle.wild).name} jumps out of the cover!`:null}
           canCatch={vine.length<VINE_MAX||(uiState.bag||[]).length<BAG_MAX}
+          pods={(()=>{ const groups=new Map(); for(const p of (uiState.pods||[]).filter(p=>p.creatureId==null)){ const k=p.size+"|"+p.biome; if(!groups.has(k)) groups.set(k,{...p,count:0}); groups.get(k).count++; }
+            return [...groups.values()].map(p=>{ const fit=podFit(p,battle.wild.species); return {id:p.id,label:podName(p),count:p.count,fit,fitWord:fitLabel(fit)}; }).sort((a,b)=>b.fit-a.fit); })()}
+          onPodBroken={breakPod}
           onEnd={handleBattleEnd}
           onCapture={handleBattleCapture}
           battleInventory={party}

@@ -41,7 +41,7 @@ const sizeOf = c => {
   const s = (SPECIES[c.species]?.sizeMul || 1) * (c.dna.size || 1) * lifeStage(c).scale;
   return s < 0.7 ? "small" : s < 1.05 ? "medium" : "large";
 };
-export const causeText = cause => cause === "hunger" ? "hunger" : "old age";
+export const causeText = cause => cause === "hunger" ? "hunger" : cause === "released" ? "released" : "old age";
 
 // Take the dead out of the living: remember them, leave remains (at home), free their mates,
 // and take them off the vine, out of the bag and out of your arms.
@@ -56,16 +56,19 @@ export function applyDeaths(state, died, clock, { leaveRemains = true } = {}) {
       id: c.id, name: c.name, species: c.species, sex: c.sex, generation: c.generation || 1,
       motherId: c.motherId ?? null, fatherId: c.fatherId ?? null, mateId: c.mateId ?? null,
       dna: c.dna, level: c.level || 1, age: c.age, maxAge: c.maxAge, stageId: lifeStage(c).id,
-      livedMs: c.age, cause, diedAt: clock, dead: true,
+      livedMs: c.age, cause, diedAt: clock, dead: cause !== "released", released: cause === "released",
     });
-    if (leaveRemains) remains.push({ id: newId(), col: c.col, row: c.row, species: c.species, name: c.name, size: sizeOf(c), diedAt: clock, energy: 3 });
+    if (leaveRemains && cause !== "released") remains.push({ id: newId(), col: c.col, row: c.row, species: c.species, name: c.name, size: sizeOf(c), diedAt: clock, energy: 3 });
     const days = Math.max(1, Math.round(c.age / DAY));
+    if (cause === "released") { lines.push(`${c.name} was released into the wild`); continue; }
     lines.push(`${c.name} died of ${causeText(cause)} at ${days} ${days === 1 ? "day" : "days"} old${descendants ? `, leaving ${descendants} ${descendants === 1 ? "descendant" : "descendants"}` : ""}`);
   }
   const creatures = state.creatures.filter(c => !ids.has(c.id)).map(c => ids.has(c.mateId) ? { ...c, mateId: null, court: 0 } : c);
   const trip = state.trip ? { ...state.trip, bag: (state.trip.bag || []).filter(id => !ids.has(id)) } : state.trip;
   return {
+    // Its pod goes back to being an empty seed you can give to another creature
     state: { ...state, creatures, remembered, remains, trip,
+      pods: (state.pods || []).map(p => ids.has(p.creatureId) ? { ...p, creatureId: null, food: 0 } : p),
       vine: (state.vine || []).filter(id => !ids.has(id)), pack: (state.pack || []).filter(id => !ids.has(id)),
       holding: ids.has(state.holding) ? null : state.holding },
     lines,

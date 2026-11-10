@@ -1,4 +1,5 @@
 import { TS } from "../config.js";
+import { PLANT_SPECIES } from "../plants/plants.js";
 import { TILES } from "./tiles.js";
 import { lifeStage, speciesOf, spriteImage, facingOf } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
@@ -223,6 +224,18 @@ export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, l
     else if (TILES[t]?.cover) items.push({ y: r + 0.98, draw: () => drawCover(ctx, t, c, r, cam, tick, rustling.has(c + "," + r)) });
   }
   for (const p of state.plants) items.push({ y: p.row, draw: () => drawPlant(ctx, p, cam) });
+  // Dens: at home, each creature's pod is planted around the mother plant
+  if (state.pods && state.pods.length) {
+    let mc = -1, mr = -1;
+    for (let r = 0; r < ROWS && mc < 0; r++) for (let c = 0; c < COLS; c++) if (map[r][c] === "mother") { mc = c; mr = r; break; }
+    const home = new Set(state.creatures.filter(c => !c.isEgg).map(c => c.id));
+    const dens = state.pods.filter(p => home.has(p.creatureId));
+    if (mc >= 0) dens.forEach((p, i) => {
+      const a = -Math.PI / 2 + (i / Math.max(dens.length, 6)) * Math.PI * 2, rad = 2.1 + (i >= 12 ? 1 : 0);
+      const col = mc + 0.5 + Math.cos(a) * rad, row = mr + 0.6 + Math.sin(a) * rad * 0.8;
+      items.push({ y: row, draw: () => drawDen(ctx, col, row, p.size, cam) });
+    });
+  }
   for (const rm of state.remains || []) items.push({ y: rm.row - 0.3, draw: () => drawRemains(ctx, rm, cam, state.clock || 0) });
   for (const cr of state.creatures) items.push({ y: cr.row, draw: () => drawCreature(ctx, cr, tick, cam, cr.id === focusId) });
   items.push({ y: state.player.row, draw: () => drawPlayer(ctx, state.player, cam) });
@@ -305,12 +318,29 @@ function drawPlant(ctx, p, cam) {
       px(dx, -hh, 1, hh, i % 2 ? "#5f8f3a" : "#77a64a");
       if (p.stage === 3 && i % 2 === 0 && p.energy > 0.3) px(dx, -hh - 2, 1, 3, "#7a4a28");
     }
+  } else if (PLANT_SPECIES[p.species]?.pod) {
+    // Marsh pod plant: a leafy stalk hung with round pods, bigger pods for the bigger seed types
+    const big = { small: 1, medium: 2, large: 3 }[PLANT_SPECIES[p.species].pod];
+    const h = p.stage === 3 ? 7 + big * 2 : 5;
+    px(0, -h, 1, h, "#4f7f2e"); px(-2, -h + 2, 2, 1, "#6a9f3c"); px(1, -h + 4, 2, 1, "#6a9f3c");
+    if (p.stage === 3) for (const [dx, dy] of [[-2 - big, -h + 3], [1, -h + 5], [-1 - big, -h + 7]].slice(0, 2 + (big > 1 ? 1 : 0))) {
+      px(dx, dy, big + 1, big + 1, "#2f3a1e"); px(dx, dy, big, big, "#b9c97a"); px(dx, dy, 1, 1, "#e6efb0");
+    }
   } else { // bog moss: a soft cushion that swells as it grows
     const w = Math.round((p.stage === 3 ? 6 : 4) * full) + 1;
     px(-w, -2, w * 2, 2, "#4f7f2e"); px(-w + 1, -3, w * 2 - 2, 1, "#6a9f3c"); px(-w + 2, -4, Math.max(1, w * 2 - 4), 1, "#8cc152");
     if (p.stage === 3 && p.energy > 0.5) { px(-2, -5, 1, 1, "#d0503c"); px(2, -5, 1, 1, "#d0503c"); }
   }
   if (p.health < 0.6) { ctx.globalAlpha = 0.35; ctx.fillStyle = "#8a6a3a"; ctx.fillRect(x - 10, y - 20, 20, 20); ctx.globalAlpha = 1; }
+}
+// A den: a pod planted in the ground with its arched doorway open
+function drawDen(ctx, col, row, size, cam) {
+  const x = col * TS - cam.x, y = row * TS - cam.y + 4, k = { small: 0.7, medium: 1, large: 1.3 }[size] || 1;
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.beginPath(); ctx.ellipse(x, y + 1, 9 * k, 3 * k, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#2f3a1e"; ctx.beginPath(); ctx.ellipse(x, y - 5 * k, 8.5 * k, 7.5 * k, 0, Math.PI, 0); ctx.lineTo(x + 8.5 * k, y); ctx.lineTo(x - 8.5 * k, y); ctx.fill();
+  ctx.fillStyle = "#9fb860"; ctx.beginPath(); ctx.ellipse(x, y - 5 * k, 7.5 * k, 6.5 * k, 0, Math.PI, 0); ctx.lineTo(x + 7.5 * k, y); ctx.lineTo(x - 7.5 * k, y); ctx.fill();
+  ctx.fillStyle = "#c9dc8a"; ctx.fillRect(x - 5 * k, y - 9 * k, 2 * k, 2 * k);
+  ctx.fillStyle = "#1c2412"; ctx.beginPath(); ctx.ellipse(x, y - 2 * k, 3 * k, 3.5 * k, 0, Math.PI, 0); ctx.lineTo(x + 3 * k, y); ctx.lineTo(x - 3 * k, y); ctx.fill();
 }
 // Remains: one plain look per body size (small, medium, large), fading over their last half-day
 const REMAINS_MS = 2 * 24 * 3600000;

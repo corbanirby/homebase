@@ -42,7 +42,8 @@ export function StatusBadge({status}){
   return <span style={{background:color+"33",border:`1px solid ${color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color}}>{icon} {status}</span>;
 }
 
-export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp,intro=null,canCatch=true}){
+export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp,intro=null,canCatch=true,pods=[],onPodBroken=null}){
+  const[showPods,setShowPods]=useState(false);
   const[phase,setPhase]=useState("player_turn");
   const[player,setPlayer]=useState(()=>makeBattler(playerCreature));
   const[enemy,setEnemy]=useState(()=>makeBattler(wildCreature));
@@ -233,18 +234,24 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     setPending(items);
   }
 
-  function tryCapture(){
-    if(!claimTurn())return;
-    const ch=Math.min(0.95,Math.max(0.05,0.05+(1-enemy.battleHp/enemy.maxHp)*0.947));
-    const pct=Math.round(ch*100);
+  // You open an empty pod in front of it; how well the pod suits it changes the chance.
+  // For now a refusal sometimes means it attacks the pod and breaks it (stage 8 brings the full scene).
+  const baseChance=()=>Math.min(0.95,Math.max(0.05,0.05+(1-enemy.battleHp/enemy.maxHp)*0.947));
+  const podChance=pod=>Math.min(0.95,Math.max(0.03,baseChance()*pod.fit));
+  function tryCapture(pod){
+    if(!pod||!claimTurn())return;
+    setShowPods(false);
+    const ch=podChance(pod), name=speciesOf(wildCreature).name;
     if(Math.random()<ch){
       const caught={...wildCreature,hp:enemy.battleHp/enemy.maxHp,level:enemy.level};
       const mine={battleHp:player.battleHp,maxHp:player.maxHp};
-      afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine),400); };
-      setPending([{msg:"Threw a catch... Caught! ("+pct+"% chance)"}]);
+      afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine,pod.id),400); };
+      setPending([{msg:`You open the ${pod.label.toLowerCase()}... the ${name} steps inside!`}]);
     } else {
+      const broke=Math.random()<0.25;
+      if(broke&&onPodBroken) onPodBroken(pod.id);
       const{b:eAfter}=applyEndOfTurn(enemy);
-      doEnemyTurn(eAfter,player,[{msg:"Threw a catch... Escaped! ("+pct+"%) — weaken more!"}]);
+      doEnemyTurn(eAfter,player,[{msg:broke?`You open the ${pod.label.toLowerCase()}... the ${name} attacks it, and the pod breaks!`:`You open the ${pod.label.toLowerCase()}... the ${name} backs away. Weaken it more.`}]);
     }
   }
 
@@ -266,7 +273,6 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     doEnemyTurn(eAfter,newBattler,[{msg:"Switched to new creature!"}]);
   }
 
-  const catchPct=Math.round(Math.min(95,Math.max(5,5+(1-enemy.battleHp/enemy.maxHp)*94.7)));
   const bg="linear-gradient(180deg,#0f172a 0%,#1e1b4b 60%,#312e81 100%)";
   const btnStyle={fontFamily:"Georgia,serif",cursor:"pointer",WebkitTapHighlightColor:"transparent",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"};
 
@@ -298,7 +304,20 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
 
       {/* Actions */}
       <div style={{background:"#0f172a",borderTop:"1px solid #1e293b",padding:"8px 10px"}}>
-        {phase==="player_turn"&&!showSwap&&(
+        {phase==="player_turn"&&showPods&&(
+          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+            <div style={{color:"#fbbf24",fontSize:11}}>Open which pod? A pod that suits it works better.</div>
+            {pods.map(p=>(
+              <button key={p.id} onClick={()=>tryCapture(p)} onContextMenu={e=>e.preventDefault()}
+                style={{...btnStyle,display:"flex",justifyContent:"space-between",alignItems:"center",background:"rgba(251,191,36,0.08)",border:"1.5px solid rgba(251,191,36,0.35)",borderRadius:8,padding:"8px 10px",color:"#fde68a",fontSize:12}}>
+                <span>🫛 {p.label}{p.count>1?` ×${p.count}`:""}</span>
+                <span style={{fontSize:11,color:p.fit>=0.75?"#86efac":p.fit>=0.5?"#facc15":"#f87171"}}>{p.fitWord} · {Math.round(podChance(p)*100)}%</span>
+              </button>
+            ))}
+            <button onClick={()=>setShowPods(false)} style={{...btnStyle,background:"transparent",border:"1px solid #334155",borderRadius:8,padding:"6px",color:"#94a3b8",fontSize:11}}>Back</button>
+          </div>
+        )}
+        {phase==="player_turn"&&!showSwap&&!showPods&&(
           <>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
               {player.moves.map(move=>(
@@ -318,9 +337,9 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
               ))}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
-              <button onClick={tryCapture} disabled={!canCatch} onContextMenu={e=>e.preventDefault()}
-                style={{...btnStyle,background:"rgba(251,191,36,0.15)",border:"1.5px solid rgba(251,191,36,0.5)",borderRadius:8,padding:"7px 4px",color:"#fbbf24",fontSize:11,opacity:canCatch?1:0.4}}>
-                ⚡ CATCH<br/><span style={{fontSize:9,opacity:0.8}}>{canCatch?`(${catchPct}%)`:"(bag full)"}</span>
+              <button onClick={()=>setShowPods(true)} disabled={!canCatch||!pods.length} onContextMenu={e=>e.preventDefault()}
+                style={{...btnStyle,background:"rgba(251,191,36,0.15)",border:"1.5px solid rgba(251,191,36,0.5)",borderRadius:8,padding:"7px 4px",color:"#fbbf24",fontSize:11,opacity:canCatch&&pods.length?1:0.4}}>
+                🫛 OPEN POD<br/><span style={{fontSize:9,opacity:0.8}}>{!canCatch?"(bag full)":!pods.length?"(no empty pods)":`(${pods.length} empty)`}</span>
               </button>
               <button onClick={()=>setShowSwap(true)} onContextMenu={e=>e.preventDefault()}
                 style={{...btnStyle,background:"rgba(96,165,250,0.15)",border:"1.5px solid rgba(96,165,250,0.4)",borderRadius:8,padding:"7px 4px",color:"#60a5fa",fontSize:11}}>

@@ -23,6 +23,23 @@ export const PLANT_SPECIES = {
     regrowHours: 72,
     seedsPerGather: 1, wetEffect: 0.05,
   },
+  // Marsh pod plants: each size is its own seed. A plant in a better spot gives more pods
+  // when you pick them, then regrows its pods. They don't spread and creatures don't eat them.
+  podsmall: {
+    name: "Small marsh pod", icon: "🫛", pod: "small", biome: "wetland",
+    wet: [0.55, 0.82, 1.0], temp: [0.3, 0.95], soils: ["rich", "poor", "mineral"],
+    stageHours: [2, 10, 12], spreadHours: 1e9, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.02,
+  },
+  podmedium: {
+    name: "Medium marsh pod", icon: "🫛", pod: "medium", biome: "wetland",
+    wet: [0.58, 0.84, 1.0], temp: [0.3, 0.95], soils: ["rich", "poor", "mineral"],
+    stageHours: [3, 18, 27], spreadHours: 1e9, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.03,
+  },
+  podlarge: {
+    name: "Large marsh pod", icon: "🫛", pod: "large", biome: "wetland",
+    wet: [0.62, 0.86, 1.0], temp: [0.3, 0.95], soils: ["rich", "mineral"],
+    stageHours: [4, 30, 62], spreadHours: 1e9, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.04,
+  },
 };
 export const GATHER_COOLDOWN_MS = 6 * H;
 // How much of a plant's food a grazing creature turns into fullness. Tuned so a new

@@ -4,7 +4,7 @@ import { getNextId } from "./ids.js";
 // Version 3: the homebase is stored as land (conditions per patch), not tiles.
 // Version 2 was built around real-world time. `savedAt` is when the world was last
 // written; on load, the catch-up step runs for the time since then.
-export const SAVE_VERSION = 8; // v8: deaths, remains, remembered creatures (stage 6)
+export const SAVE_VERSION = 9; // v9: pods (stage 7)
 const SAVE_KEY = "homebase-save-v2"; // key kept across versions; the version lives inside
 const OLD_KEYS = ["homebase-save-v1"];
 
@@ -27,6 +27,7 @@ function migrate(d) {
   if (d.v === 5) d = { ...d, v: 6, state: { ...d.state, where: "home", trip: null, world: null, food: { bogmoss: 2, cattail: 1 } } };
   if (d.v === 6) d = { ...d, v: 7 }; // two-copy genes are filled in when the save is opened
   if (d.v === 7) d = { ...d, v: 8 }; // remembered and remains start empty
+  if (d.v === 8) d = { ...d, v: 9 }; // pods are handed out when the save is opened
   if (d.v === SAVE_VERSION) return d;
   return null;
 }

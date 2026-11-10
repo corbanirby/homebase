@@ -70,8 +70,11 @@ export function newTrip(now = Date.now()) {
 
 // Ages and hunger for the creatures you're carrying, for time that passes outside
 export const VINE_HUNGER = 0.25; // creatures you carry are held in a light hibernation: a quarter as hungry
-export function ageCarried(c, ms) {
+// Creatures in the bag are sealed in their pods and fully asleep: no hunger, aging at half speed
+export const BAG_AGING = 0.5;
+export function ageCarried(c, ms, inBag = false) {
   if (c.isEgg) { const e = incubateCarried(c, ms); return e.incubation >= 1 ? hatchEgg(e) : e; }
+  if (inBag) { const age = c.age + ms * BAG_AGING; return { ...c, age, stageId: lifeStage({ age, maxAge: c.maxAge }).id }; }
   const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge });
   const rate = (c.dna.metabolism ?? 1) / STARVE_MS * VINE_HUNGER, empty = rate > 0 ? c.fullness / rate : Infinity;
   const fullness = Math.max(0, c.fullness - ms * rate);
@@ -107,9 +110,16 @@ export function simulateOutside(state, tick, input, dtMs) {
   const pc = player.col, pr = player.row;
 
   // Your creatures grow up and get hungry out here too
+  const inBag = new Set(trip.bag || []);
+  let pods = state.pods || [];
   const creatures = state.creatures.map(c => {
     if (!carried.has(c.id)) return c;
-    const n = ageCarried(c, dtMs);
+    let n = ageCarried(c, dtMs, inBag.has(c.id));
+    // Hungry on the vine: it eats from the food packed in its pod
+    if (!n.isEgg && !inBag.has(c.id) && n.fullness < 0.6) {
+      const pod = pods.find(p => p.creatureId === c.id);
+      if (pod && pod.food > 0) { n = { ...n, fullness: Math.min(1, n.fullness + 0.3), starving: 0 }; pods = pods.map(p => p === pod ? { ...p, food: p.food - 1 } : p); }
+    }
     if (c.isEgg && !n.isEgg) { floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `An egg hatched in your bag! Meet ${n.name}`, color: "#fde68a", tick }); return n; }
     if (!c.isEgg && n.stageId !== c.stageId) floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `${c.name} is now an ${lifeStage(n).label.toLowerCase()}!`, color: "#fde68a", tick });
     return n;
@@ -177,7 +187,7 @@ export function simulateOutside(state, tick, input, dtMs) {
   }
 
   return {
-    ...state, creatures, floats,
+    ...state, creatures, floats, pods,
     trip: { ...trip, player, wilds, rustles, lastTile: tileKey },
     events: [...(state.events || []).slice(-30), ...events.map(e => ({ ...e, tick }))],
     tick, clock: (state.clock || 0) + dtMs, world,
