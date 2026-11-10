@@ -13,27 +13,29 @@ import { placeholderSprite } from "./placeholderArt.js";
 //   biomes:       how much it likes each kind of Atlanta land (0–1), which sets wild populations
 //   sizeMul:      drawn size compared with an average creature
 //   temper:       range of the aggression gene for wild ones (low runs or hides, high charges you)
+//   fastHours:    how long it survives on an empty stomach before starving to death
+//   scavenger:    eats remains
 const HOMEFOOD = ["bogmoss", "cattail"];
 export const SPECIES = {
-  ramtarug: { no:1, name:"Ramtarug", path:"sprites/ramtarug", types:["Poison"], lifespanDays:28,
+  ramtarug: { no:1, name:"Ramtarug", fastHours:24, path:"sprites/ramtarug", types:["Poison"], lifespanDays:28,
     habitat:{ wet:[0.22,0.55,0.95] }, eats:HOMEFOOD, diet:"Moss and reeds", native:"Coastal-plain swamps (Okefenokee)", sizeMul:1 },
-  kudzoon: { no:2, name:"Kudzoon", art:"kudzoon", types:["Plant"], lifespanDays:30, habitat:{ wet:[0.15,0.45,0.85] }, eats:HOMEFOOD,
+  kudzoon: { no:2, name:"Kudzoon", fastHours:96, art:"kudzoon", types:["Plant"], lifespanDays:30, habitat:{ wet:[0.15,0.45,0.85] }, eats:HOMEFOOD,
     diet:"Sunlight and soil; spreads fast", based:"Kudzu", biomes:{ kudzu:1, forest:0.25, clay:0.2, meadow:0.15 }, sizeMul:1.0, temper:[0.3,0.8] },
-  thrummet: { no:3, name:"Thrummet", art:"thrummet", types:["Bug","Air"], lifespanDays:35, habitat:{ wet:[0.2,0.5,0.85] }, eats:HOMEFOOD,
+  thrummet: { no:3, name:"Thrummet", fastHours:12, art:"thrummet", types:["Bug","Air"], lifespanDays:35, habitat:{ wet:[0.2,0.5,0.85] }, eats:HOMEFOOD,
     diet:"Tree sap", based:"Cicada", biomes:{ forest:1, pine:0.4, kudzu:0.2 }, sizeMul:0.6, temper:[0.2,0.6] },
-  scuffinch: { no:4, name:"Scuffinch", art:"scuffinch", types:["Air"], lifespanDays:21, habitat:{ wet:[0.15,0.45,0.8] }, eats:HOMEFOOD,
+  scuffinch: { no:4, name:"Scuffinch", fastHours:24, art:"scuffinch", types:["Air"], lifespanDays:21, habitat:{ wet:[0.15,0.45,0.8] }, eats:HOMEFOOD,
     diet:"Bugs scratched out of leaf litter", based:"Brown thrasher", biomes:{ meadow:0.8, forest:0.6, kudzu:0.4, clay:0.3 }, sizeMul:0.7, temper:[0.45,1.0] },
-  flintback: { no:5, name:"Flintback", art:"flintback", types:["Earth","Fire"], lifespanDays:24, habitat:{ wet:[0.05,0.25,0.6] }, eats:HOMEFOOD,
+  flintback: { no:5, name:"Flintback", fastHours:36, art:"flintback", types:["Earth","Fire"], lifespanDays:24, habitat:{ wet:[0.05,0.25,0.6] }, eats:HOMEFOOD,
     diet:"Bugs", based:"Fence lizard on hot granite", biomes:{ granite:1, clay:0.3, pine:0.2 }, sizeMul:0.7, temper:[0.2,0.7] },
-  shoalclaw: { no:6, name:"Shoalclaw", art:"shoalclaw", types:["Water","Earth"], lifespanDays:18, habitat:{ wet:[0.5,0.85,1.0] }, eats:HOMEFOOD,
+  shoalclaw: { no:6, name:"Shoalclaw", fastHours:24, art:"shoalclaw", types:["Water","Earth"], lifespanDays:18, habitat:{ wet:[0.5,0.85,1.0] }, eats:HOMEFOOD,
     diet:"Algae and debris on the riverbed", based:"Chattahoochee crayfish", biomes:{ shoal:1, creek:0.8, river:0.3 }, sizeMul:0.7, temper:[0.4,1.0] },
-  glimmerwick: { no:7, name:"Glimmerwick", art:"glimmerwick", types:["Electric","Bug"], lifespanDays:14, habitat:{ wet:[0.3,0.6,0.95] }, eats:HOMEFOOD,
+  glimmerwick: { no:7, name:"Glimmerwick", fastHours:12, art:"glimmerwick", types:["Electric","Bug"], lifespanDays:14, habitat:{ wet:[0.3,0.6,0.95] }, eats:HOMEFOOD,
     diet:"Nectar and dew", based:"Firefly", biomes:{ meadow:0.9, creek:0.7, forest:0.3 }, sizeMul:0.5, temper:[0.1,0.5] },
-  possumbra: { no:8, name:"Possumbra", art:"possumbra", types:["Spirit","Normal"], lifespanDays:20, habitat:{ wet:[0.15,0.5,0.9] }, eats:HOMEFOOD,
+  possumbra: { no:8, name:"Possumbra", fastHours:48, scavenger:true, art:"possumbra", types:["Spirit","Normal"], lifespanDays:20, habitat:{ wet:[0.15,0.5,0.9] }, eats:HOMEFOOD,
     diet:"Almost anything", based:"Opossum (plays dead)", biomes:{ forest:0.6, kudzu:0.6, pine:0.5, meadow:0.4, clay:0.4, creek:0.3 }, sizeMul:0.9, temper:[0.05,0.45] },
-  clattershell: { no:9, name:"Clattershell", art:"clattershell", types:["Metal","Earth"], lifespanDays:32, habitat:{ wet:[0.1,0.35,0.7] }, eats:HOMEFOOD,
+  clattershell: { no:9, name:"Clattershell", fastHours:48, art:"clattershell", types:["Metal","Earth"], lifespanDays:32, habitat:{ wet:[0.1,0.35,0.7] }, eats:HOMEFOOD,
     diet:"Grubs and roots", based:"Armadillo", biomes:{ pine:1, clay:0.8, forest:0.2 }, sizeMul:0.9, temper:[0.2,0.6] },
-  duskhowl: { no:10, name:"Duskhowl", art:"duskhowl", types:["Normal","Spirit"], lifespanDays:40, habitat:{ wet:[0.1,0.4,0.8] }, eats:HOMEFOOD,
+  duskhowl: { no:10, name:"Duskhowl", fastHours:72, scavenger:true, art:"duskhowl", types:["Normal","Spirit"], lifespanDays:40, habitat:{ wet:[0.1,0.4,0.8] }, eats:HOMEFOOD,
     diet:"Hunts smaller creatures", based:"Coyote", biomes:{ meadow:0.3, forest:0.3, pine:0.3, clay:0.3, kudzu:0.2 }, sizeMul:1.3, temper:[0.55,1.0], rare:true },
 };
 export const ATLANTA_SPECIES = Object.keys(SPECIES).filter(k => SPECIES[k].biomes);

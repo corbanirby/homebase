@@ -12,7 +12,7 @@ export const PLANT_SPECIES = {
     wet: [0.5, 0.82, 1.0], temp: [0.25, 0.95], soils: ["rich", "poor", "mineral"],
     stageHours: [0.5, 4, 8],   // seed → sprout → young → mature: about half a day
     spreadHours: 14,           // a mature patch drops spores next to itself about this often
-    regrowHours: 2,            // grazed food grows back
+    regrowHours: 48,           // grazed food grows back slowly: a patch feeds about one creature
     seedsPerGather: 2, wetEffect: 0.03,
   },
   cattail: {
@@ -20,11 +20,14 @@ export const PLANT_SPECIES = {
     wet: [0.62, 0.86, 1.0], temp: [0.3, 1.0], soils: ["rich", "poor", "sandy", "mineral"],
     stageHours: [1, 10, 24],   // about a day and a half
     spreadHours: 30,
-    regrowHours: 4,
+    regrowHours: 72,
     seedsPerGather: 1, wetEffect: 0.05,
   },
 };
 export const GATHER_COOLDOWN_MS = 6 * H;
+// How much of a plant's food a grazing creature turns into fullness. Tuned so a new
+// homebase feeds about 6 Ramtarugs, rising to about 8 as the plants spread.
+export const GRAZE_YIELD = 0.2;
 export const MAX_PLANTS = 140;
 
 // How well a patch suits a plant, from 0 (can't live) to 1 (ideal)
@@ -112,16 +115,18 @@ export function growPlants(plants, land, ms) {
     const fit = fitOf(p.species, cell);
     let { stage, growth, energy, health } = p;
     // Wrong place: slowly wilts and dies
-    health = fit <= 0.05 ? health - ms / (8 * H) : Math.min(1, health + ms / (4 * H));
+    health = fit <= 0.05 ? health - ms / (8 * H) : Math.min(1, health + ms / (24 * H));
     if (health <= 0) { stats.died++; return { ...p, dead: true }; }
     // Grow toward the next stage, faster in a better spot
     if (stage < 3) {
       growth += (ms / (sp.stageHours[stage] * H)) * (0.3 + fit * 0.7);
-      if (growth >= 1) { growth = 0; stage++; if (stage === 1) stats.sprouted++; if (stage === 3) { stats.matured++; energy = Math.max(energy, 0.6); } }
+      // Growing up the first time fills it with food; regrowing after grazing doesn't
+      if (growth >= 1) { growth = 0; stage++; if (stage === 1) stats.sprouted++; if (stage === 3) { stats.matured++; if (!p.grazedBack) energy = Math.max(energy, 0.6); } }
       if (stage === 2) energy = Math.min(0.35, energy + ms / (sp.regrowHours * H) * 0.35);
     } else {
       // Grazed down to nothing: knocked back to young, it regrows from the roots
-      if (energy < 0.05) { stage = 2; growth = 0.4; energy = 0.1; }
+      // Grazed bare again and again, it dies (overgrazing)
+      if (energy < 0.05) { stage = 2; growth = 0.4; energy = 0.1; health -= 0.5; p = { ...p, grazedBack: true }; if (health <= 0) { stats.died++; return { ...p, dead: true }; } }
       else energy = Math.min(1, energy + ms / (sp.regrowHours * H));
       // Spread to a neighbouring patch that suits it
       if (stage === 3 && Math.random() < (ms / (sp.spreadHours * H)) * fit) {

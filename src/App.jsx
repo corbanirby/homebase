@@ -13,6 +13,7 @@ import { makeResident, pickName, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUN
 import { PLANT_SPECIES, GATHER_COOLDOWN_MS, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate } from "./creatures/breeding.js";
+import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor } from "./sim/outside.js";
 import { atlanta, areaKey, BIOME_NAMES } from "./world/atlanta.js";
@@ -47,7 +48,10 @@ function advanceAway(state,land,away,speed){
   const ms=away*speed;
   if(state.where==="out"){
     const carried=new Set([...(state.vine||[]),...(state.trip?.bag||[])]);
-    return { state:{...state,clock:(state.clock||0)+ms,creatures:state.creatures.map(c=>carried.has(c.id)?ageCarried(c,Math.min(ms,30*DAY)):c)}, landStats:null, report:{awayMs:away,lines:[]} };
+    const aged={...state,clock:(state.clock||0)+ms,creatures:state.creatures.map(c=>carried.has(c.id)?ageCarried(c,Math.min(ms,30*DAY)):c)};
+    const m=stepMortality(aged.creatures.filter(c=>carried.has(c.id)),Math.min(ms,30*DAY),{hungerCounted:true});
+    const d=applyDeaths({...aged,creatures:[...aged.creatures.filter(c=>!carried.has(c.id)),...m.alive]},m.died,aged.clock,{leaveRemains:false});
+    return { state:d.state, landStats:null, report:{awayMs:away,lines:d.lines} };
   }
   const landStats=growLand(land,ms,plantEffects(state.plants));
   const caught=catchUp(state,land,ms);
@@ -58,7 +62,7 @@ function advanceAway(state,land,away,speed){
 // (once per save, so creatures born later aren't lifted)
 const liftStarters=s=>s.startersLifted?s:({...s,startersLifted:true,creatures:(s.creatures||[]).map(c=>c.species==="ramtarug"&&(c.level||1)<STARTER_LEVEL?raiseToLevel(c,STARTER_LEVEL):c)});
 const withTripFields=s=>liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
-  pack:s.pack||[],holding:s.holding??null,creatures:(s.creatures||[]).map(ensureGenome)});
+  pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[],creatures:(s.creatures||[]).map(ensureGenome)});
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
   const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
@@ -150,7 +154,7 @@ export default function Homebase(){
 
   const refreshUi=()=>{
     const s=stateRef.current; if(!s) return;
-    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:s.trip?.bag||[],pack:s.pack||[],holding:s.holding??null,where:s.where,plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{},food:s.food||{},atSwap:s.where==="out"?atSwapSpot(s):true}));
+    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:s.trip?.bag||[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],where:s.where,plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{},food:s.food||{},atSwap:s.where==="out"?atSwapSpot(s):true}));
   };
 
   // Write the current world to this browser's storage
@@ -172,7 +176,7 @@ export default function Homebase(){
     const maxId=[...state.creatures,...state.plants,...(state.trip?.wilds||[])].reduce((m,e)=>Math.max(m,e.id||0),0);
     setNextId(Math.max(d.nextId||1,maxId+1));
     refreshUi();
-    if(report&&away>=60000&&state.where!=="out") setAwayReport(report);
+    if(report&&away>=60000&&(state.where!=="out"||report.lines.length)) setAwayReport(report);
     setScreen("game");
   },[]);
 
@@ -196,7 +200,7 @@ export default function Homebase(){
         const {state,report,landStats}=advanceAway(stateRef.current,landRef.current,away,speedRef.current);
         if(landStats) landDirtyRef.current=true;
         stateRef.current=state; refreshUi();
-        if(report&&away>=60000&&state.where!=="out") setAwayReport(report);
+        if(report&&away>=60000&&(state.where!=="out"||report.lines.length)) setAwayReport(report);
       }
     };
     document.addEventListener("visibilitychange",onVis);
@@ -264,7 +268,7 @@ export default function Homebase(){
   // A grown plant next to you with enough on it to pick some food
   const harvestable=()=>{
     const s=stateRef.current; if(!s) return null;
-    return s.plants.filter(pl=>pl.stage===3&&pl.energy>=0.4).map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
+    return s.plants.filter(pl=>pl.stage===3&&pl.energy>=0.6).map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
   };
   const actHint=()=>{
     const s=stateRef.current; if(!s) return null;
@@ -277,6 +281,8 @@ export default function Homebase(){
     if(nearMother()) return {kind:"out",label:"Go out"};
     if(c) return look;
     if(harvestable()) return {kind:"harvest",label:"Harvest"};
+    const r=(s.remains||[]).find(r=>Math.hypot(r.col-s.player.col,r.row-s.player.row)<1.3);
+    if(r) return {kind:"remains",label:"Remains",name:r.name};
     return null;
   };
   const doAct=()=>{
@@ -295,6 +301,7 @@ export default function Homebase(){
       return;
     }
     if(hint?.kind==="out"){ goOut(); return; }
+    if(hint?.kind==="remains"){ addFloat(`The remains of ${hint.name}. The plants here are doing well.`,"#cbd5c0"); return; }
     if(hint?.kind==="setdown"){
       const p=s0.player, [dc,dr]={up:[0,-0.7],down:[0,0.7],left:[-0.7,0],right:[0.7,0]}[p.facing]||[0,0.7];
       let col=p.col+dc,row=p.row+dr; if(!isPassable(mapRef.current,col,row)){col=p.col;row=p.row+0.2;}
@@ -303,7 +310,7 @@ export default function Homebase(){
     }
     if(hint?.kind==="harvest"){
       const pl=harvestable(); if(!pl) return;
-      stateRef.current={...s0,plants:s0.plants.map(p=>p.id===pl.id?{...p,energy:p.energy-0.35}:p),food:{...s0.food,[pl.species]:(s0.food?.[pl.species]||0)+1}};
+      stateRef.current={...s0,plants:s0.plants.map(p=>p.id===pl.id?{...p,energy:p.energy-0.6}:p),food:{...s0.food,[pl.species]:(s0.food?.[pl.species]||0)+1}};
       addFloat("+1 "+FOOD_NAMES[pl.species],"#86efac"); refreshUi(); return;
     }
     const c=hint?.kind==="pet"?stateRef.current.creatures.find(o=>o.id===hint.id):null;
@@ -428,7 +435,7 @@ export default function Homebase(){
     const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
     const kind=(SPECIES[c.species]?.eats||[]).find(k=>(s.food?.[k]||0)>0);
     if(!kind){ addFloat("No food it eats in your bag","#facc15"); return; }
-    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.4)}:o)};
+    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),starving:0}:o)};
     refreshUi(); saveNow();
   };
   // Out in the world, creatures move between vine and bag only at your door, springs and shoals
@@ -543,12 +550,22 @@ export default function Homebase(){
             const enc=next._encounter; delete next._encounter;
             stateRef.current=next;
             if(enc){ startBattle(enc.wild,enc.how); break; }
+            if(tickRef.current%20===0){
+              // Carried creatures can still starve (slowly) or reach the end of their lives out here
+              const sC=stateRef.current, carried=new Set([...(sC.vine||[]),...(sC.trip.bag||[])]);
+              const m=stepMortality(sC.creatures.filter(c=>carried.has(c.id)),20*TICK_MS*speedRef.current,{hungerCounted:true});
+              if(m.died.length){
+                const d=applyDeaths({...sC,creatures:[...sC.creatures.filter(c=>!carried.has(c.id)),...m.alive]},m.died,sC.clock||0,{leaveRemains:false});
+                stateRef.current={...d.state,floats:[...(d.state.floats||[]),...d.lines.map((t,i)=>({id:newId(),col:sC.trip.player.col,row:sC.trip.player.row-0.6-i*0.4,text:t,color:"#cbd5c0",tick:tickRef.current}))]};
+                setAwayReport({awayMs:0,lines:d.lines,title:"Sad news"}); saveNow();
+              } else stateRef.current={...sC,creatures:sC.creatures.map(c=>m.alive.find(a=>a.id===c.id)||c)};
+            }
             if(tickRef.current%100===0) saveNow();
             if(tickRef.current%6===0){
               const sN=stateRef.current, act=outsideAct(sN), tp=sN.trip.player, w=atlanta();
               focusRef.current=act?.kind==="battle"?act.wild.id:null;
               const biome=w.biome[Math.floor(tp.row)]?.[Math.floor(tp.col)];
-              setUiState(u=>({...u,creatures:sN.creatures,vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},act,atSwap:atSwapSpot(sN),
+              setUiState(u=>({...u,creatures:sN.creatures,remembered:sN.remembered||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},act,atSwap:atSwapSpot(sN),
                 place:{biome:BIOME_NAMES[biome]||"",lv:Math.min(10,1+Math.floor(distFromDoor(tp.col,tp.row)/14)),area:areaKey(tp.col,tp.row)}}));
             }
             continue;
@@ -580,13 +597,26 @@ export default function Homebase(){
             stateRef.current={...sB,creatures:br.creatures,floats:fl,
               holding:br.creatures.some(c=>c.id===sB.holding&&c.isEgg)?sB.holding:null};
             if(br.events.some(e=>e.type!=="paired")) saveNow();
+            // Old age and hunger; remains feed nearby plants, then fade and leave richer ground
+            const sM=stateRef.current;
+            const m=stepMortality(sM.creatures,stepMs);
+            let next={...sM,creatures:m.alive};
+            if(m.died.length){
+              const d=applyDeaths(next,m.died,sM.clock||0);
+              next={...d.state,floats:[...d.state.floats,...m.died.map(({c,cause})=>({id:newId(),col:c.col,row:c.row-0.6,text:`${c.name} died of ${causeText(cause)}`,color:"#cbd5c0",tick:tickRef.current}))]};
+              setAwayReport({awayMs:0,lines:d.lines,title:"Sad news"}); saveNow();
+            }
+            const before=(next.remains||[]).length;
+            const rm=stepRemains(next.remains,next.plants,land,stepMs,next.clock||0);
+            if(rm.remains.length<before) landDirtyRef.current=true;
+            stateRef.current={...next,remains:rm.remains,plants:rm.plants};
           }
           if(tickRef.current%100===0) saveNow();
           if(tickRef.current%6===0){
             const s=stateRef.current, pl=s.player, cell=land?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)];
             const here=cell?{wet:cell.wet,temp:cell.temp,soil:cell.soil,veg:cell.veg,trample:cell.trample,water:cell.water}:null;
             const act=actHint(); focusRef.current=act?.kind==="pet"?act.id:null;
-            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:[],pack:s.pack||[],holding:s.holding??null,where:"home",plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},food:s.food||{},garden:gardenInfo(),act,atSwap:true}));
+            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],where:"home",plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},food:s.food||{},garden:gardenInfo(),act,atSwap:true}));
           }
         }
       } else accRef.current=0;
@@ -670,7 +700,10 @@ export default function Homebase(){
   }
 
   const creatures=uiState.creatures||[], vine=uiState.vine||[];
+  const remembered=uiState.remembered||[];
+  const known=id=>id==null?null:creatures.find(o=>o.id===id)||remembered.find(o=>o.id===id)||null;
   const cardC=cardId!=null?creatures.find(c=>c.id===cardId):null;
+  const cardDead=cardId!=null&&!cardC?remembered.find(r=>r.id===cardId):null;
   const bar=(v,col)=>(
     <div style={{flex:1,height:6,background:"#1e2618",borderRadius:3,overflow:"hidden"}}>
       <div style={{width:`${Math.round(Math.max(0,Math.min(1,v))*100)}%`,height:"100%",background:col,borderRadius:3,transition:"width 0.6s"}}/>
@@ -685,6 +718,8 @@ export default function Homebase(){
         <div style={{display:"flex",gap:10,marginLeft:"auto",alignItems:"center"}}>
           <span style={{color:"#4a6a32",fontSize:11}}>🐾 <span style={{color:"#86efac"}}>{creatures.filter(c=>!c.isEgg).length}</span>{creatures.some(c=>c.isEgg)&&<span style={{color:"#fde68a"}}> +{creatures.filter(c=>c.isEgg).length}🥚</span>}</span>
           {uiState.where!=="out"&&<span style={{color:"#4a6a32",fontSize:11}}>🌿 <span style={{color:"#4ade80"}}>{uiState.plants}</span></span>}
+          {(()=>{ const n=creatures.filter(c=>!c.isEgg&&(c.starving||0)>0&&(uiState.where!=="out"||vine.includes(c.id)||(uiState.bag||[]).includes(c.id))).length;
+            return n?<button onClick={()=>{setPanel("creatures");refreshUi();}} style={{background:"rgba(248,113,113,0.16)",border:"1px solid rgba(248,113,113,0.6)",borderRadius:6,color:"#fca5a5",fontSize:10,padding:"2px 6px",fontFamily:"Georgia,serif",cursor:"pointer"}}>⚠ {n} starving</button>:null; })()}
           <span style={{color:"#6a8a52",fontSize:10,letterSpacing:"0.08em",opacity:Date.now()-lastSaved<2500?1:0,transition:"opacity 0.6s"}}>💾 saved</span>
           <span style={{color:"#6a8a52",fontSize:11,fontVariantNumeric:"tabular-nums"}}>Day {day}</span>
         </div>
@@ -857,11 +892,26 @@ export default function Homebase(){
                         <span style={{color:"#6b7a5e",fontSize:10,width:44}}>Health</span>{bar(c.hp,c.hp>0.5?"#86efac":c.hp>0.2?"#facc15":"#f87171")}
                       </div>
                     </div>
-                    <span style={{color:condColor(v),fontSize:11,whiteSpace:"nowrap"}}>{conditionWord(c)}</span>
+                    <span style={{color:(c.starving||0)>0?"#f87171":condColor(v),fontSize:11,whiteSpace:"nowrap"}}>{(c.starving||0)>0?"Starving!":inLastDays(c)?"Last days":conditionWord(c)}</span>
                   </button>
                 );
               })}
             </div>
+            {(uiState.remembered||[]).length>0&&(
+              <>
+                <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",margin:"16px 0 6px"}}>Remembered · {(uiState.remembered||[]).length}</div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {[...(uiState.remembered||[])].reverse().map(r=>(
+                    <button key={r.id} onClick={()=>setCardId(r.id)}
+                      style={{display:"flex",alignItems:"center",gap:10,background:"#0d100d",border:"1px solid #1a1f18",borderRadius:10,padding:"6px 10px",cursor:"pointer",textAlign:"left",fontFamily:"Georgia,serif",touchAction:"manipulation",opacity:0.8}}>
+                      <div style={{filter:"grayscale(1)",opacity:0.7}}><CreatureIcon c={r} size={30}/></div>
+                      <span style={{flex:1,color:"#b8c0b0",fontSize:12}}>{r.name} <span style={{color:"#6b7a5e",fontSize:11}}>· {speciesOf(r).name} · gen {r.generation||1}</span></span>
+                      <span style={{color:"#6b7a5e",fontSize:11,whiteSpace:"nowrap"}}>{(n=>`${n} ${n===1?"day":"days"}`)(Math.max(1,Math.round(r.livedMs/DAY)))} · {causeText(r.cause)}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           <div style={{height:24}}/>
         </div>
@@ -906,6 +956,41 @@ export default function Homebase(){
       )}
 
       {/* A creature's card */}
+      {cardDead&&(()=>{
+        const r=cardDead, mom=known(r.motherId), dad=known(r.fatherId), mate=known(r.mateId);
+        const all=[...creatures,...remembered], kids=all.filter(o=>!o.isEgg&&(o.motherId===r.id||o.fatherId===r.id));
+        const link=o=>o?<button onClick={()=>setCardId(o.id)} style={{background:"none",border:"none",padding:0,color:o.dead?"#9aa88a":"#c8e6a0",fontFamily:"Georgia,serif",fontSize:12,textDecoration:"underline",cursor:"pointer"}}>{o.name}{o.dead?" †":""}</button>:<span style={{color:"#6b7a5e"}}>unknown</span>;
+        return(
+          <div data-scroll="" style={{...sheet,zIndex:120,background:"rgba(0,0,0,0.8)",justifyContent:"flex-end"}} onClick={e=>{ if(e.target===e.currentTarget) setCardId(null); }}>
+            <div style={{...column,padding:0,marginBottom:"max(12px, env(safe-area-inset-bottom, 0px))"}}>
+              <div style={{margin:"0 12px",background:"#0f110f",border:"1px solid #2a2e28",borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{background:"#161816",borderRadius:12,padding:4,filter:"grayscale(1)",opacity:0.8}}><CreatureIcon c={r} size={64}/></div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{color:"#d8ddd2",fontSize:18}}>{r.name} <span style={{fontSize:14,color:"#8a9a7a"}}>{r.sex==="F"?"♀":"♂"} †</span></div>
+                    <div style={{color:"#8a9a7a",fontSize:12,marginTop:2}}>{speciesOf(r).name} · generation {r.generation||1} · Lv{r.level||1}</div>
+                    <div style={{color:"#6b7a5e",fontSize:11,marginTop:2}}>Lived {formatDuration(r.livedMs)} · died of {causeText(r.cause)} on day {Math.floor((r.diedAt||0)/DAY)+1}</div>
+                  </div>
+                  <button onClick={()=>setCardId(null)} aria-label="Close" style={{...closeBtn,alignSelf:"flex-start"}}>✕</button>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:3,fontSize:12,color:"#9aa88a"}}>
+                  <div>Parents: {r.motherId!=null?<>{link(mom)} × {link(dad)}</>:<span style={{color:"#6b7a5e"}}>wild-born or a starter</span>}</div>
+                  <div>Mate: {r.mateId!=null?link(mate):<span style={{color:"#6b7a5e"}}>none</span>}</div>
+                  <div>Children: {kids.length?kids.map((k,i)=><span key={k.id}>{i?", ":""}{link(k)}</span>):"none"}</div>
+                  <div>Descendants: {countDescendants(r.id,all)}</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 14px"}}>
+                  {GENES.map(([key,label,lo,hi,words])=>(
+                    <div key={key} style={{display:"flex",justifyContent:"space-between",borderBottom:"1px solid #1c2418",paddingBottom:2}}>
+                      <span style={{color:"#5a6a4a",fontSize:11}}>{label}</span><span style={{color:"#9aa88a",fontSize:11}}>{geneWord(r.dna?.[key]??1,lo,hi,words)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {cardC&&cardC.isEgg&&(()=>{
         const e=cardC, out=uiState.where==="out", inBag=(uiState.bag||[]).includes(e.id), packed=(uiState.pack||[]).includes(e.id);
         const cell=out?null:landRef.current?.cells[Math.floor(e.row)]?.[Math.floor(e.col)];
@@ -969,10 +1054,16 @@ export default function Homebase(){
                       </div>
                     )}
                     <div style={{color:"#8a9a7a",fontSize:12,marginTop:2}}>{speciesOf(c).name} · {st.label} · {fmtAge(c.age)} old</div>
-                    <div style={{color:"#5a6a4a",fontSize:11,marginTop:2}}>{(speciesOf(c).types||[]).join(" / ")} · Lv{c.level||1} · {nx?`${nx.stage.label} in ${formatDuration(nx.ms)}`:"In the last part of its life"}</div>
+                    <div style={{color:"#5a6a4a",fontSize:11,marginTop:2}}>{(speciesOf(c).types||[]).join(" / ")} · Lv{c.level||1} · {nx?`${nx.stage.label} in ${formatDuration(nx.ms)}`:inLastDays(c)?"In the last days of its life":"An elder"}</div>
                   </div>
                   <button onClick={()=>{setCardId(null);setRenaming(null);}} aria-label="Close" style={{...closeBtn,alignSelf:"flex-start"}}>✕</button>
                 </div>
+                {(c.starving||0)>0&&(
+                  <div style={{background:"rgba(248,113,113,0.12)",border:"1px solid rgba(248,113,113,0.5)",borderRadius:8,padding:"6px 10px",color:"#fca5a5",fontSize:12,lineHeight:1.5}}>
+                    Starving! It will die in about {formatDuration(Math.max(0,fastMs(c)-c.starving))} unless it eats.{uiState.where==="out"?"":" Make sure it can reach food, or feed it."}
+                  </div>
+                )}
+                {inLastDays(c)&&<div style={{color:"#cbd5c0",fontSize:12,lineHeight:1.5}}>{c.name} is in the last days of its life. Keeping it fed, healthy and in land that suits it helps it last a little longer.</div>}
                 <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between"}}>
                   <span style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase"}}>Condition</span>
                   <span style={{color:condColor(v),fontSize:15}}>{conditionWord(c)}</span>
@@ -1007,9 +1098,9 @@ export default function Homebase(){
                     ))}
                   </div>
                 </div>
-                {(()=>{ const mom=creatures.find(o=>o.id===c.motherId), dad=creatures.find(o=>o.id===c.fatherId), mate=c.mateId!=null?creatures.find(o=>o.id===c.mateId):null;
-                  const kids=creatures.filter(o=>o.motherId===c.id||o.fatherId===c.id), eggs=kids.filter(o=>o.isEgg).length;
-                  const link=o=>o?<button onClick={()=>{setCardId(o.id);setChoosingMate(false);}} style={{background:"none",border:"none",padding:0,color:"#c8e6a0",fontFamily:"Georgia,serif",fontSize:12,textDecoration:"underline",cursor:"pointer"}}>{o.name}</button>:<span style={{color:"#6b7a5e"}}>gone</span>;
+                {(()=>{ const mom=known(c.motherId), dad=known(c.fatherId), mate=c.mateId!=null?creatures.find(o=>o.id===c.mateId):null;
+                  const kids=[...creatures,...remembered].filter(o=>o.motherId===c.id||o.fatherId===c.id), eggs=kids.filter(o=>o.isEgg).length;
+                  const link=o=>o?<button onClick={()=>{setCardId(o.id);setChoosingMate(false);}} style={{background:"none",border:"none",padding:0,color:o.dead?"#9aa88a":"#c8e6a0",fontFamily:"Georgia,serif",fontSize:12,textDecoration:"underline",cursor:"pointer"}}>{o.name}{o.dead?" †":""}</button>:<span style={{color:"#6b7a5e"}}>unknown</span>;
                   const candidates=creatures.filter(o=>!o.isEgg&&o.id!==c.id&&o.species===c.species&&o.sex!==c.sex);
                   return (
                   <div>
@@ -1088,7 +1179,7 @@ export default function Homebase(){
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div style={{width:"100%",maxWidth:320,background:"#141414",border:"1px solid #2a3520",borderRadius:12,padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
             <div style={{color:"#c8e6a0",fontSize:15,letterSpacing:"0.08em"}}>{awayReport.title||"While you were away"}</div>
-            <div style={{color:"#6a7a5a",fontSize:12}}>{formatDuration(awayReport.awayMs)}</div>
+            {awayReport.awayMs>=60000&&<div style={{color:"#6a7a5a",fontSize:12}}>{formatDuration(awayReport.awayMs)}</div>}
             {awayReport.lines.length
               ?awayReport.lines.map((l,i)=><div key={i} style={{color:"#cbd5c0",fontSize:13,lineHeight:1.5}}>• {l}</div>)
               :<div style={{color:"#cbd5c0",fontSize:13}}>All was quiet in your homebase.</div>}

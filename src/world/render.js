@@ -223,6 +223,7 @@ export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, l
     else if (TILES[t]?.cover) items.push({ y: r + 0.98, draw: () => drawCover(ctx, t, c, r, cam, tick, rustling.has(c + "," + r)) });
   }
   for (const p of state.plants) items.push({ y: p.row, draw: () => drawPlant(ctx, p, cam) });
+  for (const rm of state.remains || []) items.push({ y: rm.row - 0.3, draw: () => drawRemains(ctx, rm, cam, state.clock || 0) });
   for (const cr of state.creatures) items.push({ y: cr.row, draw: () => drawCreature(ctx, cr, tick, cam, cr.id === focusId) });
   items.push({ y: state.player.row, draw: () => drawPlayer(ctx, state.player, cam) });
   items.sort((a, b) => a.y - b.y);
@@ -310,6 +311,27 @@ function drawPlant(ctx, p, cam) {
     if (p.stage === 3 && p.energy > 0.5) { px(-2, -5, 1, 1, "#d0503c"); px(2, -5, 1, 1, "#d0503c"); }
   }
   if (p.health < 0.6) { ctx.globalAlpha = 0.35; ctx.fillStyle = "#8a6a3a"; ctx.fillRect(x - 10, y - 20, 20, 20); ctx.globalAlpha = 1; }
+}
+// Remains: one plain look per body size (small, medium, large), fading over their last half-day
+const REMAINS_MS = 2 * 24 * 3600000;
+function drawRemains(ctx, r, cam, clock) {
+  const x = r.col * TS - cam.x, y = r.row * TS - cam.y + 4;
+  const k = { small: 0.6, medium: 1, large: 1.45 }[r.size] || 1;
+  const left = 1 - (clock - r.diedAt) / REMAINS_MS;
+  ctx.globalAlpha = Math.max(0.15, Math.min(1, left * 4)) * Math.min(1, 0.4 + (r.energy ?? 1) / 3);
+  // a patch of darker, richer ground with a few sprouts
+  ctx.fillStyle = "rgba(60,44,28,0.45)"; ctx.beginPath(); ctx.ellipse(x, y, 14 * k, 5 * k, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#6fb24a"; for (const [dx, dy] of [[-11, -1], [10, 1], [-4, 3]]) ctx.fillRect(x + dx * k, y + dy * k - 3, 1, 3);
+  // a few pale bones: a skull, ribs and a long bone
+  ctx.fillStyle = "#2a2622";
+  ctx.beginPath(); ctx.ellipse(x - 6 * k, y - 3 * k, 4 * k + 1, 3 * k + 1, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#e8e0cc";
+  ctx.beginPath(); ctx.ellipse(x - 6 * k, y - 3 * k, 4 * k, 3 * k, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#2a2622"; ctx.fillRect(x - 8 * k, y - 4 * k, Math.max(1, 1.5 * k), Math.max(1, 1.5 * k));
+  ctx.strokeStyle = "#e8e0cc"; ctx.lineWidth = Math.max(1, 1.4 * k);
+  for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(x + (1 + i * 3) * k, y - 1 * k, 3 * k, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(x + 2 * k, y + 2 * k); ctx.lineTo(x + 11 * k, y + 1 * k); ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 // Every species' egg looks the same, so what's inside is a surprise. It rocks a little when it's nearly ready.
 function drawEgg(ctx, c, tick, cam, focused) {

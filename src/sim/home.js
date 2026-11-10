@@ -3,14 +3,16 @@ import { newId } from "../engine/ids.js";
 import { isPassable } from "../world/tiles.js";
 import { SPECIES, lifeStage } from "../creatures/species.jsx";
 import { HOUR, STARVE_MS, HUNGRY_AT, WEAK_AT, habitatFit } from "../creatures/resident.js";
+import { GRAZE_YIELD } from "../plants/plants.js";
 import { movePlayer, softCollide } from "./movement.js";
 
 const STAGE_SPEED = { baby: 0.6, adolescent: 0.85, adult: 1, elder: 0.7 };
 const BITE_TICKS = 20;   // a bite about once a second
 const BITE = 0.12;       // how much one bite fills it, and takes from the plant
 
-// Plants a creature can eat right now
-const edible = (c, p) => !p.dead && p.stage >= 2 && p.energy > 0.2 && (SPECIES[c.species]?.eats || []).includes(p.species);
+// Plants a creature can eat right now, and remains if it's a scavenger
+const edible = (c, p) => !p.dead && p.stage >= 2 && p.energy > 0.2 &&
+  (p.species === "remains" ? !!SPECIES[c.species]?.scavenger : (SPECIES[c.species]?.eats || []).includes(p.species));
 
 // Nearest plant it can actually walk to, and the tiles to walk through (breadth-first over the grid)
 function findFood(c, plants, map, avoid = null) {
@@ -40,7 +42,9 @@ function findFood(c, plants, map, avoid = null) {
 // ─── One step of life at home ─────────────────────────────────────────────────
 // dtMs is how much world time this step stands for (TICK_MS, times the test speed).
 export function simulateHome(state, tick, input, map, land, dtMs) {
-  let { creatures, plants, floats, events } = state;
+  let { creatures, floats, events } = state;
+  // Food on the ground: plants, plus remains (stage 3, so scavengers can graze them)
+  let plants = [...state.plants, ...(state.remains || []).map(r => ({ ...r, species: "remains", stage: 3, _remains: true }))];
   let newFloats = floats.filter(f => tick - f.tick < 45);
   const newEvents = [];
   const player = movePlayer(state.player, input, creatures, map);
@@ -96,8 +100,8 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
       if (!t || t.dead || t.energy < 0.06 || fullness >= 0.97) { cs = "wander"; targetId = null; wanderTimer = 0; }
       else if (++biteTimer >= BITE_TICKS) {
         biteTimer = 0;
-        const take = Math.max(0, Math.min(BITE, t.energy - 0.05, 0.98 - fullness));
-        fullness += take;
+        const take = Math.max(0, Math.min(BITE / GRAZE_YIELD, t.energy - 0.05, (0.98 - fullness) / GRAZE_YIELD));
+        fullness += take * GRAZE_YIELD;
         plants = plants.map((p, j) => j === i ? { ...p, energy: p.energy - take } : p);
       }
     }
@@ -127,7 +131,9 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
   });
 
   return {
-    ...state, clock, player, plants,
+    ...state, clock, player,
+    plants: plants.filter(p => !p._remains),
+    remains: (state.remains || []).map(r => { const f = plants.find(p => p._remains && p.id === r.id); return f ? { ...r, energy: f.energy } : r; }),
     creatures: softCollide(moved, player, map),
     floats: newFloats, events: [...events.slice(-30), ...newEvents], tick,
   };

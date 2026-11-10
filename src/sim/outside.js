@@ -69,10 +69,14 @@ export function newTrip(now = Date.now()) {
 }
 
 // Ages and hunger for the creatures you're carrying, for time that passes outside
+export const VINE_HUNGER = 0.25; // creatures you carry are held in a light hibernation: a quarter as hungry
 export function ageCarried(c, ms) {
   if (c.isEgg) { const e = incubateCarried(c, ms); return e.incubation >= 1 ? hatchEgg(e) : e; }
   const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge });
-  return { ...c, age, stageId: st.id, fullness: Math.max(0, c.fullness - ms / STARVE_MS * (c.dna.metabolism ?? 1)), hp: c.hp < 1 && c.hp > 0.05 ? Math.min(1, c.hp + ms / (24 * HOUR)) : c.hp };
+  const rate = (c.dna.metabolism ?? 1) / STARVE_MS * VINE_HUNGER, empty = rate > 0 ? c.fullness / rate : Infinity;
+  const fullness = Math.max(0, c.fullness - ms * rate);
+  const starving = ms > empty ? (c.fullness > 0 ? ms - empty : (c.starving || 0) + ms) : 0;
+  return { ...c, age, stageId: st.id, fullness, starving, hp: c.hp < 1 && c.hp > 0.05 ? Math.min(1, c.hp + ms / (24 * HOUR)) : c.hp };
 }
 
 function randomCoverNear(map, col, row, rad) {

@@ -157,10 +157,13 @@ export function stepBreeding(creatures, land, ms, clock, { away = false, nest = 
     if (!e.isEgg) return e;
     const cell = land?.cells[Math.floor(e.row)]?.[Math.floor(e.col)];
     const k = eggClimate(e, cell);
+    // On ground that doesn't suit it at all, an egg fails after three times its hatching time
+    const stalled = k === 0 ? (e.stalled || 0) + ms : 0;
+    if (stalled >= 3 * breedParams(e.species).incubationMs) { events.push({ type: "eggFailed", laidBy: e.laidBy, col: e.col, row: e.row }); return null; }
     const inc = Math.min(1, e.incubation + (ms / breedParams(e.species).incubationMs) * k);
     if (inc >= 1) { const baby = hatchEgg({ ...e, incubation: 1 }, names); names.push(baby.name); events.push({ type: "hatched", name: baby.name, col: e.col, row: e.row, species: e.species }); return baby; }
-    return { ...e, incubation: inc };
-  });
+    return { ...e, incubation: inc, stalled };
+  }).filter(Boolean);
   return { creatures: list, events };
 }
 
