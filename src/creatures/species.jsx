@@ -57,7 +57,7 @@ export function speciesOf(c){ return SPECIES[c.species]||SPECIES.ramtarug; }
 const spriteCache={};
 const spriteListeners=new Set();
 export function spriteImage(sp,stage,dir){
-  if(sp.art) return placeholderSprite(sp.art,stage,dir,()=>spriteListeners.forEach(f=>f()));
+  if(sp.art) return placeholderSprite(sp.art,stage,dir);
   const key=`${sp.path}/${stage}/${dir}.png`;
   let img=spriteCache[key];
   if(!img){

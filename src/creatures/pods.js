@@ -45,14 +45,26 @@ export function podsFromPlant(plant, cell) {
   return Array.from({ length: n }, () => makePod(sp.pod, sp.biome));
 }
 
-// New homebases (and older saves) start with pods for their creatures, a few empty pods and pod seeds
+// New homebases (and older saves) start with a pod for each creature and 9 empty pods (4 small, 3 medium, 2 large)
 export function starterPods(creatures) {
   const pods = [];
   const owned = creatures.filter(c => !c.isEgg).map(c => {
     const p = makePod(sizeClass(c.species), "wetland", c.id); pods.push(p);
     return { ...c, podId: p.id };
   });
-  for (const s of ["small", "small", "small", "medium", "medium", "large"]) pods.push(makePod(s));
+  for (const s of ["small", "small", "small", "small", "medium", "medium", "medium", "large", "large"]) pods.push(makePod(s));
   return { pods, creatures: owned };
 }
-export const STARTER_POD_SEEDS = { podsmall: 3, podmedium: 2, podlarge: 1 };
+// Pods are the seeds of pod plants: plant an empty pod and it grows into a pod plant of
+// its size. Older saves had separate pod seeds; they become empty pods.
+export const POD_PLANT = { small: "podsmall", medium: "podmedium", large: "podlarge" };
+export function podSeedsToPods(state) {
+  const seeds = { ...(state.seeds || {}) }, pods = [...(state.pods || [])];
+  let changed = false;
+  for (const [size, id] of Object.entries(POD_PLANT)) {
+    if (seeds[id] == null) continue;
+    for (let i = 0; i < seeds[id]; i++) pods.push(makePod(size));
+    delete seeds[id]; changed = true;
+  }
+  return changed ? { ...state, seeds, pods } : state;
+}

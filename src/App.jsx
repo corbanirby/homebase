@@ -13,7 +13,7 @@ import { makeResident, pickName, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUN
 import { PLANT_SPECIES, GATHER_COOLDOWN_MS, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate } from "./creatures/breeding.js";
-import { podName, podFit, fitLabel, bestPod, podsFromPlant, starterPods, STARTER_POD_SEEDS, POD_FOOD_MAX } from "./creatures/pods.js";
+import { podName, podFit, fitLabel, bestPod, podsFromPlant, starterPods, podSeedsToPods, POD_FOOD_MAX } from "./creatures/pods.js";
 import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor } from "./sim/outside.js";
@@ -78,9 +78,9 @@ const withPods=s=>{
   if(s.pods) return s;
   const {pods,creatures}=starterPods(s.creatures||[]);
   const byId=new Map(creatures.map(c=>[c.id,c]));
-  return {...s,pods,creatures:(s.creatures||[]).map(c=>byId.get(c.id)||c),seeds:{...STARTER_POD_SEEDS,...(s.seeds||{})}};
+  return {...s,pods,creatures:(s.creatures||[]).map(c=>byId.get(c.id)||c)};
 };
-const withTripFields=s0=>{ const s=withPods({...s0,creatures:(s0.creatures||[]).map(ensureGenome)}); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+const withTripFields=s0=>{ const s=podSeedsToPods(withPods({...s0,creatures:(s0.creatures||[]).map(ensureGenome)})); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
@@ -105,7 +105,7 @@ function makeNewWorld(){
   const she=raiseToLevel(makeResident({...spots[0],sex:"F",name:pickName()}),STARTER_LEVEL);
   const he=raiseToLevel(makeResident({...spots[1],sex:"M",name:pickName([she.name])}),STARTER_LEVEL);
   const plants=startingPlants(land);
-  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3,...STARTER_POD_SEEDS}, events:[], floats:[], tick:0, clock:0 }) };
+  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3}, events:[], floats:[], tick:0, clock:0 }) };
 }
 
 const fmtAge=ms=>{ const d=Math.floor(ms/DAY), h=Math.floor((ms%DAY)/3600000); return d?`${d} ${d===1?"day":"days"}${h?" "+h+" h":""}`:`${h} ${h===1?"hour":"hours"}`; };
@@ -238,7 +238,7 @@ export default function Homebase(){
   const gatherable=()=>{
     const s=stateRef.current; if(!s) return null;
     const now=Date.now();
-    return s.plants.filter(pl=>pl.stage===3&&(now-(pl.lastGather||0))*speedRef.current>=GATHER_COOLDOWN_MS)
+    return s.plants.filter(pl=>pl.stage===3&&!PLANT_SPECIES[pl.species]?.pod&&(now-(pl.lastGather||0))*speedRef.current>=GATHER_COOLDOWN_MS)
       .map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)}))
       .filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
   };
@@ -253,15 +253,19 @@ export default function Homebase(){
   const addFloat=(text,color,at=null)=>{ const s=stateRef.current; const p=at||s.player; stateRef.current={...s,floats:[...s.floats,{id:newId(),col:p.col,row:p.row,text,color,tick:tickRef.current}]}; };
   const plantSeed=id=>{
     const s=stateRef.current, land=landRef.current, t=targetTile(); if(!s||!land||!t) return;
-    if(!(s.seeds?.[id]>0)) { addFloat("No seeds left","#f87171"); return; }
+    // A pod plant is grown from an empty pod of its size
+    const podSize=PLANT_SPECIES[id]?.pod, seedPod=podSize?(s.pods||[]).find(p=>p.creatureId==null&&p.size===podSize):null;
+    if(podSize?!seedPod:!(s.seeds?.[id]>0)) { addFloat(podSize?"No empty pod of that size":"No seeds left","#f87171"); return; }
     const cell=land.cells[t.r]?.[t.c];
     if(!cell||cell.water||cell.edge||cell.mother||!isPassable(mapRef.current,t.c+0.5,t.r+0.5)) { addFloat("Can't plant there","#f87171"); return; }
     if(s.plants.find(pl=>plantKey(pl)===t.c+","+t.r)) { addFloat("Already planted","#facc15"); return; }
     const f=fitOf(id,cell);
     if(f<=0) { addFloat(fitWord(f,cell,id),"#f87171"); return; }
-    stateRef.current={...s,plants:[...s.plants,makeSeedling(id,t.c,t.r,0)],seeds:{...s.seeds,[id]:s.seeds[id]-1}};
+    stateRef.current=podSize
+      ?{...s,plants:[...s.plants,makeSeedling(id,t.c,t.r,0)],pods:s.pods.filter(p=>p.id!==seedPod.id)}
+      :{...s,plants:[...s.plants,makeSeedling(id,t.c,t.r,0)],seeds:{...s.seeds,[id]:s.seeds[id]-1}};
     addFloat("🌱 Planted","#86efac");
-    setUiState(u=>({...u,seeds:stateRef.current.seeds,garden:gardenInfo()}));
+    setUiState(u=>({...u,seeds:stateRef.current.seeds,pods:stateRef.current.pods,garden:gardenInfo()}));
   };
   const gatherSeeds=()=>{
     const g=gatherable(); if(!g) { addFloat("Nothing ripe nearby","#94a3b8"); return; }
@@ -844,19 +848,19 @@ export default function Homebase(){
       {/* Controls */}
       <div style={{flex:1,position:"relative",touchAction:"none",background:"rgba(0,0,0,0.55)",borderTop:"1px solid rgba(200,230,160,0.08)",display:"flex",flexDirection:"column",padding:"8px max(12px, env(safe-area-inset-right, 0px)) max(28px, calc(env(safe-area-inset-bottom, 0px) + 12px)) max(12px, env(safe-area-inset-left, 0px))",gap:8,overflow:"hidden"}}>
           {showSeeds&&uiState.where!=="out"&&(
-          <div style={{position:"absolute",left:158,right:"max(8px, env(safe-area-inset-right, 0px))",top:8,bottom:"max(24px, calc(env(safe-area-inset-bottom, 0px) + 8px))",zIndex:6,background:"#0c100a",border:"1px solid rgba(134,239,172,0.3)",borderRadius:10,padding:"7px 8px",display:"flex",flexDirection:"column",gap:5,overflow:"hidden",touchAction:"manipulation"}}>
+          <div data-scroll="" style={{position:"absolute",left:158,right:"max(8px, env(safe-area-inset-right, 0px))",top:8,bottom:"max(24px, calc(env(safe-area-inset-bottom, 0px) + 8px))",zIndex:6,background:"#0c100a",border:"1px solid rgba(134,239,172,0.3)",borderRadius:10,padding:"7px 8px",display:"flex",flexDirection:"column",gap:5,overflowY:"auto",WebkitOverflowScrolling:"touch",overscrollBehavior:"contain",touchAction:"pan-y"}}>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <span style={{color:"#c8e6a0",fontSize:12,letterSpacing:"0.08em"}}>Seeds</span>
               <button onClick={()=>setShowSeeds(false)} aria-label="Close seeds" style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
             </div>
             {Object.entries(PLANT_SPECIES).map(([id,sp])=>{
-              const n=uiState.seeds?.[id]||0, f=uiState.garden?.fits?.[id];
+              const n=sp.pod?(uiState.pods||[]).filter(p=>p.creatureId==null&&p.size===sp.pod).length:(uiState.seeds?.[id]||0), f=uiState.garden?.fits?.[id];
               const good=f&&f.fit>0&&!uiState.garden.occupied;
               return(
                 <div key={id} style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:15}}>{sp.icon}</span>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{color:"#e2e8f0",fontSize:12}}>{sp.name} <span style={{color:"#86efac"}}>×{n}</span></div>
+                    <div style={{color:"#e2e8f0",fontSize:12}}>{sp.pod?sp.name.replace(" marsh",""):sp.name} <span style={{color:"#86efac"}}>×{n}</span></div>
                     <div style={{color:good?(f.fit>=0.45?"#86efac":"#facc15"):"#f87171",fontSize:10}}>{f?f.word:"–"}</div>
                   </div>
                   <button onClick={()=>plantSeed(id)} disabled={!n||!good}
@@ -993,7 +997,7 @@ export default function Homebase(){
           </div>
           <div style={{...column,display:"flex",flexDirection:"column",gap:8}}>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase"}}>Seeds</div>
-            {Object.entries(PLANT_SPECIES).map(([id,sp])=>(
+            {Object.entries(PLANT_SPECIES).filter(([,sp])=>!sp.pod).map(([id,sp])=>(
               <div key={id} style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px"}}>
                 <span style={{fontSize:18}}>{sp.icon}</span>
                 <span style={{flex:1,color:"#e2e8f0",fontSize:13}}>{sp.name} seeds</span>
@@ -1017,7 +1021,7 @@ export default function Homebase(){
                   <span style={{fontSize:18}}>🫛</span><span style={{flex:1,color:"#e2e8f0",fontSize:13}}>{k}</span>
                   <span style={{color:"#d9e6a0",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{groups[k]}</span>
                 </div>)):<div style={{color:"#4a5a3a",fontSize:12}}>None. Grow marsh pod plants at home and pick them with Act.</div>; })()}
-            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>You catch with empty pods; they don't take space in your bag. A pod that suits the creature (its size, and its kind of land) works better.</div>
+            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Plant an empty pod (in the Seeds tray) to grow a pod plant of that size. You catch with empty pods; they don't take space in your bag. A pod that suits the creature (its size, and its kind of land) works better.</div>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Creatures · {(uiState.bag||[]).length}/{BAG_MAX}</div>
             {(uiState.bag||[]).length?(
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>

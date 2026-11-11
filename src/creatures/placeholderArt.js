@@ -87,8 +87,10 @@ function finish(g, elder) {
   g.putImageData(new ImageData(out, G, G), 0, 0);
 }
 
+// Drawn once per look and kept. It's handed back as the canvas itself (ready to draw at once),
+// with a picture address in .src for <img> tags, so it never has to wait to load.
 const cache = {};
-export function placeholderSprite(kind, stage, dir, onload = null) {
+export function placeholderSprite(kind, stage, dir) {
   const west = dir.includes("west");
   const key = kind + "/" + (stage === "elder" ? "elder" : "young") + "/" + (west ? "w" : "e");
   let img = cache[key];
@@ -100,8 +102,8 @@ export function placeholderSprite(kind, stage, dir, onload = null) {
     const b = big.getContext("2d"); b.imageSmoothingEnabled = false;
     if (west) { b.translate(big.width, 0); b.scale(-1, 1); }
     b.drawImage(small, 0, 0, big.width, big.height);
-    img = new Image(); if (onload) img.onload = onload; img.src = big.toDataURL();
-    cache[key] = img;
+    big.src = big.toDataURL();
+    img = cache[key] = big;
   }
-  return img.complete && img.naturalWidth ? img : null;
+  return img;
 }
