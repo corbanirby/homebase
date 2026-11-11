@@ -398,7 +398,8 @@ function drawCreature(ctx, c, tick, cam, focused) {
   } else { ctx.fillStyle = dnaColor(c.dna, 55); ctx.beginPath(); ctx.arc(x, footY - r, r, 0, Math.PI * 2); ctx.fill(); }
   // Name under its feet, and a bubble when it's hungry or weak
   ctx.font = "bold 9px Georgia"; ctx.textAlign = "center";
-  const label = c.wild ? `Lv${c.level || 1}` + (c.sex === "F" ? " ♀" : c.sex === "M" ? " ♂" : "") : (c.name || "") + (c.sex === "F" ? " ♀" : c.sex === "M" ? " ♂" : "");
+  // Roaming wild creatures carry no label, for surprise; you see level and sex in the battle
+  const label = c.wild ? "" : (c.name || "") + (c.sex === "F" ? " ♀" : c.sex === "M" ? " ♂" : "");
   ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillText(label, x + 1, footY + 11);
   ctx.fillStyle = focused ? "#fde68a" : "#f1f5e8"; ctx.fillText(label, x, footY + 10);
   if (!c.wild && (weak || (c.fullness ?? 1) < 0.6)) {

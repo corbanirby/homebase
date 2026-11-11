@@ -3,7 +3,7 @@ import { XP_PER_LEVEL } from "../config.js";
 import { lifeStage, speciesOf, spriteImage, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
 import { learnMoveAtLevel, TYPE_COLORS } from "./moves.js";
-import { makeBattler, executeBattleMove, applyEndOfTurn, aiPickMove } from "./engine.js";
+import { makeBattler, executeBattleMove, applyEndOfTurn, aiPickMove, goesFirst } from "./engine.js";
 
 // ─── Battle components ────────────────────────────────────────────────────────
 export function BattleSprite({creature,size=90,flipped=false,shake=false}){
@@ -44,13 +44,18 @@ export function StatusBadge({status}){
   return <span style={{background:color+"33",border:`1px solid ${color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color}}>{icon} {status}</span>;
 }
 
-export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp,intro=null,canCatch=true,pods=[],onPodBroken=null}){
+export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp,intro=null,canCatch=true,pods=[],onPodBroken=null,biome=null}){
   const[showPods,setShowPods]=useState(false);
   const[phase,setPhase]=useState("player_turn");
-  const[player,setPlayer]=useState(()=>makeBattler(playerCreature));
-  const[enemy,setEnemy]=useState(()=>makeBattler(wildCreature));
+  const[player,setPlayer]=useState(()=>makeBattler(playerCreature,biome));
+  const[enemy,setEnemy]=useState(()=>makeBattler(wildCreature,biome));
   const[activeCreature,setActiveCreature]=useState(playerCreature); // tracks sprite
-  const[log,setLog]=useState([intro||("A wild Lv"+(wildCreature.level||1)+" "+speciesOf(wildCreature).name+" appeared!")]);
+  const[log,setLog]=useState(()=>{
+    const l=[intro||("A wild Lv"+(wildCreature.level||1)+" "+speciesOf(wildCreature).name+" appeared!")];
+    if(enemy.habitatBonus) l.push(`The ${speciesOf(wildCreature).name} is on its home ground (+10%).`);
+    if(player.habitatBonus) l.push(`${playerCreature.name||"Yours"} feels at home here (+10%).`);
+    return l;
+  });
   const[shakeP,setShakeP]=useState(false);
   const[shakeE,setShakeE]=useState(false);
   const[pending,setPending]=useState(null);
@@ -86,19 +91,23 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
           const next=afterQueueRef.current; afterQueueRef.current=null;
           setTimeout(next,300); return;
         }
-        const p=playerRef.current, e=enemyRef.current;
-        if(e.battleHp<=0) setTimeout(()=>endBattle("win",p,e),300);
-        else if(p.battleHp<=0){
-          const remaining=(battleInventory||[]).filter((_,i)=>i>0&&battleInventory[i]&&(battleInventory[i].hp||0)>0.05);
-          if(remaining.length>0) setPhase("forced_swap");
-          else setTimeout(()=>endBattle("loss",p,e),300);
-        }
-        else giveTurnBack();
+        settleTurn();
       } else setPending(rest);
     },700);
     return()=>clearTimeout(timer);
   },[pending]);
 
+  // After a turn's messages: someone fainted, or it's your turn again
+  function settleTurn(){
+    const p=playerRef.current, e=enemyRef.current;
+    if(e.battleHp<=0) setTimeout(()=>endBattle("win",p,e),300);
+    else if(p.battleHp<=0){
+      const remaining=(battleInventory||[]).filter((_,i)=>i>0&&battleInventory[i]&&(battleInventory[i].hp||0)>0.05);
+      if(remaining.length>0) setPhase("forced_swap");
+      else setTimeout(()=>endBattle("loss",p,e),300);
+    }
+    else giveTurnBack();
+  }
   function endBattle(result,fp,fe){
     if(result==="win"){
       const totalXp=Math.floor(20+(fe.level||1)*8);
@@ -123,7 +132,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   }
 
   // Build a pending queue where state updates are deferred to match log display
-  function doEnemyTurn(currentEnemy, currentPlayer, extraMsgs=[]) {
+  function doEnemyTurn(currentEnemy, currentPlayer, extraMsgs=[], then=null) {
     const em=aiPickMove(currentEnemy,currentPlayer);
     const r=executeBattleMove(currentEnemy,currentPlayer,em);
     let finalPlayer=r.newDefender;
@@ -180,11 +189,24 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     playerRef.current=finalPlayer;
     enemyRef.current=finalEnemy;
 
+    if(then) afterQueueRef.current=then;
     setPending(items);
   }
 
+  // The faster creature acts first. If the foe is quicker it moves, then you do (if you're still standing).
   function handleMove(move){
     if(!claimTurn())return;
+    if(!goesFirst(player,enemy)){
+      doEnemyTurn(enemy,player,[{msg:`The wild ${speciesOf(wildCreature).name} is quicker!`}],()=>{
+        const p=playerRef.current, e=enemyRef.current;
+        if(p.battleHp<=0||e.battleHp<=0){ settleTurn(); return; }
+        playerAct(move,p,e,false);
+      });
+      return;
+    }
+    playerAct(move,player,enemy,true);
+  }
+  function playerAct(move,player,enemy,thenFoe){
     const r1=executeBattleMove(player,enemy,move);
     const items=[];
 
@@ -216,6 +238,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       setPending(items); return;
     }
 
+    // When the foe already moved this turn, the turn ends here (its turn ticked burns and poison)
+    if(!thenFoe){ playerRef.current=r1.newAttacker; enemyRef.current=r1.newDefender; setPending(items); return; }
     // End of turn status on enemy
     let currentEnemy=r1.newDefender;
     const{b:eAfter,msg:eMsg}=applyEndOfTurn(currentEnemy);
@@ -267,7 +291,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     onSwapToFront(idx);
     const incoming=battleInventory[idx];
     // incoming already has battleHp if it was previously in battle
-    const newBattler=makeBattler(incoming);
+    const newBattler=makeBattler(incoming,biome);
     setPlayer(newBattler);
     setActiveCreature(incoming);
     setParticipantIds(prev=>new Set([...prev,incoming.id]));
@@ -367,7 +391,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                       onSaveBattleHp(0,0,player.maxHp);
                       onSwapToFront(i);
                       const inc=battleInventory[i];
-                      const nb=makeBattler(inc);
+                      const nb=makeBattler(inc,biome);
                       setPlayer(nb);setActiveCreature(inc);
                       setParticipantIds(prev=>new Set([...prev,inc.id]));
                       giveTurnBack();

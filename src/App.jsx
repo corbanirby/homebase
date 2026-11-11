@@ -91,6 +91,7 @@ function giveXp(c,xp){
   return {...c,xp:nxp,level:Math.max(c.level||1,nl),moves};
 }
 const BAG_MAX=6;
+const REST_REFILL_MS=60*60*1000; // a spring or stretch of shoals heals again after an hour
 const FOOD_NAMES={bogmoss:"Moss clump",cattail:"Cattail shoots"};
 
 // A brand-new homebase: land, wild plants, and a pair of baby Ramtarugs next to you
@@ -119,6 +120,8 @@ const GENES=[
   ["metabolism","Appetite",0.4,1.6,["Light","Average","Big"]],
   ["xpRate","Learning",0.5,1.5,["Quick","Average","Slow"]],
   ["aggression","Temper",0.2,1.0,["Calm","Even","Bold"]],
+  ["elemental","Elemental",0.6,1.4,["Dull","Average","Brilliant"]],
+  ["resistance","Resistance",0.6,1.4,["Thin","Average","Hardy"]],
 ];
 const geneWord=(v,lo,hi,words)=>{ const t=(v-lo)/(hi-lo); return words[t<0.34?0:t>0.66?2:1]; };
 const condColor=v=>v>=0.85?"#86efac":v>=0.65?"#bef264":v>=0.45?"#facc15":"#f87171";
@@ -322,9 +325,16 @@ export default function Homebase(){
       if(hint.kind==="battle"){ startBattle(hint.wild,"approach"); return; }
       if(hint.kind==="home"){ goHome(); return; }
       if(hint.kind==="rest"){
+        // Each spring (or stretch of shoals) restores a quarter of each creature's health, then needs an hour to refill
+        const tp=s0.trip.player, w=atlanta(), kind=spotAt(s0);
+        const sp=kind==="spring"?w.springs.find(q=>Math.hypot(q.c+0.5-tp.col,q.r+0.5-tp.row)<1.8):null;
+        const key=sp?`spring:${sp.c},${sp.r}`:`shoal:${Math.round(tp.col/6)}`;
+        const last=s0.world?.restAt?.[key], wait=last!=null?REST_REFILL_MS-((s0.clock||0)-last):0;
+        if(wait>0){ addFloat(`${kind==="spring"?"The spring":"The shoals"} needs about ${formatDuration(wait)} to refill`,"#93c5fd",tp); refreshUi(); setPanel("creatures"); return; }
         const carried=new Set([...(s0.vine||[]),...(s0.trip.bag||[])]);
-        stateRef.current={...s0,creatures:s0.creatures.map(c=>carried.has(c.id)?{...c,hp:1}:c)};
-        addFloat(spotAt(s0)==="spring"?"Your creatures rest at the spring":"Your creatures rest at the shoals","#93c5fd",s0.trip.player);
+        stateRef.current={...s0,world:{...s0.world,restAt:{...(s0.world?.restAt||{}),[key]:s0.clock||0}},
+          creatures:s0.creatures.map(c=>carried.has(c.id)&&!c.isEgg?{...c,hp:Math.min(1,(c.hp||0)+0.25)}:c)};
+        addFloat(kind==="spring"?"Your creatures drink at the spring: +25% health":"Your creatures rest at the shoals: +25% health","#93c5fd",tp);
         refreshUi(); setPanel("creatures"); return;
       }
       return;
@@ -411,7 +421,9 @@ export default function Homebase(){
     const ordered=[vineC[lead],...vineC.filter((_,i)=>i!==lead)];
     partyRef.current=ordered; setParty(ordered);
     stateRef.current={...s,trip};
-    const b={wild,how,key:Date.now()}; battleRef.current=b; setBattle(b);
+    // The land you're fighting on (for the habitat advantage)
+    const tp=s.trip.player, biome=atlanta().biome[Math.floor(tp.row)]?.[Math.floor(tp.col)]||null;
+    const b={wild,how,biome,key:Date.now()}; battleRef.current=b; setBattle(b);
   };
   const swapToFront=idx=>{
     const p=[...partyRef.current]; const t=p[0]; p[0]=p[idx]; p[idx]=t;
@@ -1159,8 +1171,8 @@ export default function Homebase(){
                 {(()=>{ const b=makeBattler(c); return (
                   <div>
                     <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Battle stats · Lv{c.level||1} {st.label.toLowerCase()}</div>
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-                      {[["HP",b.maxHp],["Attack",b.atk],["Defense",b.def],["Speed",b.spd]].map(([k,v])=>(
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                      {[["HP",b.maxHp],["Attack",b.atk],["Defense",b.def],["Elemental",b.ele],["Resistance",b.res],["Speed",b.spd]].map(([k,v])=>(
                         <div key={k} style={{background:"#0c110c",border:"1px solid #1c2418",borderRadius:8,padding:"4px 0",textAlign:"center"}}>
                           <div style={{color:"#e2e8f0",fontSize:15,fontVariantNumeric:"tabular-nums"}}>{v}</div>
                           <div style={{color:"#5a6a4a",fontSize:9}}>{k}</div>
@@ -1273,6 +1285,7 @@ export default function Homebase(){
           pods={(()=>{ const groups=new Map(); for(const p of (uiState.pods||[]).filter(p=>p.creatureId==null)){ const k=p.size+"|"+p.biome; if(!groups.has(k)) groups.set(k,{...p,count:0}); groups.get(k).count++; }
             return [...groups.values()].map(p=>{ const fit=podFit(p,battle.wild.species); return {id:p.id,label:podName(p),count:p.count,fit,fitWord:fitLabel(fit)}; }).sort((a,b)=>b.fit-a.fit); })()}
           onPodBroken={breakPod}
+          biome={battle.biome}
           onEnd={handleBattleEnd}
           onCapture={handleBattleCapture}
           battleInventory={party}

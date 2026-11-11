@@ -9,7 +9,7 @@ import { deriveMoves } from "../battle/moves.js";
 // picked at random to show; the other stays hidden but can be passed on, so a
 // hidden copy can come back in a grandchild. Each copy passed on has a small
 // chance to mutate a little.
-export const GENE_KEYS = ["hue", "saturation", "size", "speed", "lifespan", "fertility", "strength", "aggression", "metabolism", "reproRate", "xpRate", "hpRange"];
+export const GENE_KEYS = ["hue", "saturation", "size", "speed", "lifespan", "fertility", "strength", "aggression", "metabolism", "reproRate", "xpRate", "hpRange", "elemental", "resistance"];
 const MUTATE_CHANCE = 0.05;
 function mutate(key, v) {
   if (Math.random() >= MUTATE_CHANCE) return v;
@@ -24,9 +24,13 @@ export function genomeFrom(dna, hidden = randomDNA()) {
   return { genome, shown };
 }
 export function ensureGenome(c) {
-  if (c.genome || c.isEgg) return c;
-  const { genome, shown } = genomeFrom(c.dna);
-  return { ...c, genome, shown };
+  if (!c.genome && !c.isEgg) { const { genome, shown } = genomeFrom(c.dna); return { ...c, genome, shown }; }
+  // Genes added later (Elemental and Resistance, stage 8): random values, both copies
+  const missing = GENE_KEYS.filter(k => !c.genome?.[k]);
+  if (!missing.length || !c.genome) return c;
+  const genome = { ...c.genome }, dna = { ...c.dna }, shown = { ...(c.shown || {}) }, a = randomDNA(), b = randomDNA();
+  for (const k of missing) { genome[k] = [a[k], b[k]]; shown[k] = 0; if (dna[k] == null) dna[k] = a[k]; }
+  return { ...c, genome, dna, shown };
 }
 // What a child gets: one copy from each parent, either of the parent's two
 function childGenome(mom, dad) {
