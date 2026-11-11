@@ -18,13 +18,15 @@ export function BattleSprite({creature,size=90,flipped=false,shake=false}){
   </div>;
 }
 
-export function HpBar({current,max,label,level}){
+// ♀ pink, ♂ blue, next to the name
+const SexMark=({sex})=>sex==="F"?<span style={{color:"#f9a8d4",marginLeft:4}} aria-label="female">♀</span>:sex==="M"?<span style={{color:"#93c5fd",marginLeft:4}} aria-label="male">♂</span>:null;
+export function HpBar({current,max,label,level,sex=null}){
   const pct=Math.max(0,current/max);
   const col=pct>0.5?"#4ade80":pct>0.25?"#facc15":"#f87171";
   return(
     <div style={{background:"#1a1a2e",border:"1px solid #2a2a4a",borderRadius:6,padding:"6px 10px",minWidth:150}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-        <span style={{color:"#e2e8f0",fontSize:12,fontWeight:"bold"}}>{label}</span>
+        <span style={{color:"#e2e8f0",fontSize:12,fontWeight:"bold"}}>{label}<SexMark sex={sex}/></span>
         <span style={{color:"#64748b",fontSize:10}}>Lv{level}</span>
       </div>
       <div style={{background:"#0f0f1e",borderRadius:3,height:8,overflow:"hidden",marginBottom:3}}>
@@ -281,7 +283,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       {/* Battle field */}
       <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around",padding:"8px 16px"}}>
         <div style={{display:"flex",justifyContent:"flex-end",alignItems:"flex-end",gap:12}}>
-          <HpBar current={enemy.battleHp} max={enemy.maxHp} label={"Wild "+speciesOf(wildCreature).name} level={enemy.level}/>
+          <HpBar current={enemy.battleHp} max={enemy.maxHp} label={"Wild "+speciesOf(wildCreature).name} level={enemy.level} sex={wildCreature.sex}/>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
             <StatusBadge status={enemy.status}/>
             <BattleSprite creature={wildCreature} size={120} flipped={true} shake={shakeE}/>
@@ -293,7 +295,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
             <StatusBadge status={player.status}/>
             <BattleSprite creature={activeCreature} size={120} shake={shakeP}/>
           </div>
-          <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level}/>
+          <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level} sex={activeCreature.sex}/>
         </div>
       </div>
 
