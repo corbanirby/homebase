@@ -57,7 +57,7 @@ function advanceAway(state,land,away,speed){
       const pod=pods.find(p=>p.creatureId===c.id);
       if(!n.isEgg&&!inBag.has(c.id)&&pod&&pod.food>0&&(n.fullness<0.6||n.starving>0)){
         const need=Math.min(pod.food,Math.ceil((0.6-n.fullness)/0.3)+(n.starving>0?1:0));
-        n={...n,fullness:Math.min(1,n.fullness+need*0.3),starving:0}; pods=pods.map(p=>p===pod?{...p,food:p.food-need}:p);
+        n={...n,fullness:Math.min(1,n.fullness+need*0.3),hp:n.hp>0?Math.min(1,n.hp+need*0.15):n.hp,starving:0}; pods=pods.map(p=>p===pod?{...p,food:p.food-need}:p);
       }
       return n; })};
     aged.pods=pods;
@@ -530,7 +530,9 @@ export default function Homebase(){
     const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
     const kind=(SPECIES[c.species]?.eats||[]).find(k=>(s.food?.[k]||0)>0);
     if(!kind){ addFloat("No food it eats in your bag","#facc15"); return; }
-    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),starving:0}:o)};
+    if(c.fullness>=0.95){ addFloat(`${c.name} is full`,"#facc15"); return; }
+    // A meal fills 30% and heals 15%
+    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),hp:Math.min(1,(o.hp??1)+0.15),starving:0}:o)};
     refreshUi(); saveNow();
   };
   // Out in the world, creatures move between vine and bag only at your door, springs and shoals
@@ -1285,7 +1287,7 @@ export default function Homebase(){
                     <span style={{color:"#6b7a5e",fontSize:11,width:28,textAlign:"right"}}>{i+1}/{vine.length}</span>
                   </div>); })()}
                 {(()=>{ const kind=(SPECIES[c.species]?.eats||[]).find(k=>(uiState.food?.[k]||0)>0), n=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0);
-                  return <button onClick={()=>feedCreature(c.id)} disabled={!kind||c.fullness>=0.97}
+                  return <button onClick={()=>feedCreature(c.id)} disabled={!kind||c.fullness>=0.95}
                     style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!kind||c.fullness>=0.97?0.45:1}}>
                     🌿 {!kind?"No food it eats in your bag":c.fullness>=0.97?"Full":`Feed ${FOOD_NAMES[kind].toLowerCase()} (${n} left)`}
                   </button>; })()}

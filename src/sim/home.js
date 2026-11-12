@@ -64,7 +64,8 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     }
     // Getting hungry, healing, settling into the patch it's on
     fullness = Math.max(0, fullness - dtMs / STARVE_MS * (c.dna.metabolism ?? 1));
-    if (hp < 1) hp = Math.min(1, hp + dtMs / (12 * HOUR));
+    // Resting at home heals fully in about 3 hours
+    if (hp < 1) hp = Math.min(1, hp + dtMs / (3 * HOUR));
     const cell = land?.cells[Math.floor(row)]?.[Math.floor(col)];
     habitat += (habitatFit(c, cell) - habitat) * Math.min(1, dtMs / (2 * HOUR));
 
@@ -101,7 +102,7 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
       else if (++biteTimer >= BITE_TICKS) {
         biteTimer = 0;
         const take = Math.max(0, Math.min(BITE / GRAZE_YIELD, t.energy - 0.05, (0.98 - fullness) / GRAZE_YIELD));
-        fullness += take * GRAZE_YIELD;
+        fullness += take * GRAZE_YIELD; hp = Math.min(1, hp + take * GRAZE_YIELD * 0.5); // a meal (+30% full) heals 15%
         plants = plants.map((p, j) => j === i ? { ...p, energy: p.energy - take } : p);
       }
     }

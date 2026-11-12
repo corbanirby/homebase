@@ -80,7 +80,7 @@ export function ageCarried(c, ms, inBag = false) {
   const rate = (c.dna.metabolism ?? 1) / STARVE_MS * VINE_HUNGER, empty = rate > 0 ? c.fullness / rate : Infinity;
   const fullness = Math.max(0, c.fullness - ms * rate);
   const starving = ms > empty ? (c.fullness > 0 ? ms - empty : (c.starving || 0) + ms) : 0;
-  return { ...c, age, stageId: st.id, fullness, starving, hp: c.hp < 1 && c.hp > 0.05 ? Math.min(1, c.hp + ms / (24 * HOUR)) : c.hp };
+  return { ...c, age, stageId: st.id, fullness, starving, hp: c.hp < 1 && c.hp > 0.05 ? Math.min(1, c.hp + ms / ((inBag ? 24 : 12) * HOUR)) : c.hp }; // vine heals fully in ~12 h, asleep in the bag ~24 h
 }
 
 function randomCoverNear(map, col, row, rad) {
@@ -119,7 +119,7 @@ export function simulateOutside(state, tick, input, dtMs) {
     // Hungry on the vine: it eats from the food packed in its pod
     if (!n.isEgg && !inBag.has(c.id) && n.fullness < 0.6) {
       const pod = pods.find(p => p.creatureId === c.id);
-      if (pod && pod.food > 0) { n = { ...n, fullness: Math.min(1, n.fullness + 0.3), starving: 0 }; pods = pods.map(p => p === pod ? { ...p, food: p.food - 1 } : p); }
+      if (pod && pod.food > 0) { n = { ...n, fullness: Math.min(1, n.fullness + 0.3), hp: n.hp > 0 ? Math.min(1, n.hp + 0.15) : n.hp, starving: 0 }; pods = pods.map(p => p === pod ? { ...p, food: p.food - 1 } : p); }
     }
     if (c.isEgg && !n.isEgg) { floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `An egg hatched in your bag! Meet ${n.name}`, color: "#fde68a", tick }); return n; }
     if (!c.isEgg && n.stageId !== c.stageId) floats.push({ id: newId(), col: pc, row: pr - 0.6, text: `${c.name} is now an ${lifeStage(n).label.toLowerCase()}!`, color: "#fde68a", tick });
