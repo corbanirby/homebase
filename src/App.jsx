@@ -301,6 +301,19 @@ export default function Homebase(){
     const s=stateRef.current; if(!s) return null;
     return s.plants.filter(pl=>pl.stage===3&&PLANT_SPECIES[pl.species]?.pod).map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
   };
+  // The plant on (or right next to) your spot
+  const nearPlant=()=>{ const s=stateRef.current; if(!s) return null;
+    return s.plants.map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)})).filter(x=>x.d<1.1).sort((a,b)=>a.d-b.d)[0]?.pl||null; };
+  // What a plant is doing: its stage, how long until it's grown, and how well the spot suits it
+  const describePlant=pl=>{
+    const sp=PLANT_SPECIES[pl.species], cell=landRef.current?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)], fit=fitOf(pl.species,cell);
+    const stage=["Seed","Sprout","Growing","Grown"][pl.stage], spot=fitWord(fit,cell,pl.species);
+    if(fit<=0.05) return `${sp.name}: ${stage.toLowerCase()}. ${spot}, so it's wilting and will die.`;
+    let left=0; for(let i=pl.stage;i<3;i++) left+=(i===pl.stage?1-pl.growth:1)*sp.stageHours[i];
+    const ms=left*3600000/(0.3+fit*0.7);
+    if(pl.stage<3) return `${sp.name}: ${stage.toLowerCase()}. ${sp.pod?"Pods ripe":"Grown"} in about ${formatDuration(ms)}. ${spot}.`;
+    return `${sp.name}: ${sp.pod?"pods ripe":"grown"}. ${spot}.`;
+  };
   const actHint=()=>{
     const s=stateRef.current; if(!s) return null;
     if(s.where==="out") return outsideAct(s);
@@ -312,7 +325,11 @@ export default function Homebase(){
     if(nearMother()) return {kind:"out",label:"Go out"};
     if(c) return look;
     if(pickable()) return {kind:"pick",label:"Pick pods"};
-    if(harvestable()) return {kind:"harvest",label:"Harvest"};
+    // Standing right on a plant you can't harvest (a seed, a sprout, a growing pod plant): look at it
+    const pl=nearPlant(), h=harvestable();
+    if(pl&&pl!==h&&Math.hypot(pl.col-s.player.col,pl.row-s.player.row)<0.8) return {kind:"look",label:"Look at plant",id:pl.id};
+    if(h) return {kind:"harvest",label:"Harvest"};
+    if(pl) return {kind:"look",label:"Look at plant",id:pl.id};
     const r=(s.remains||[]).find(r=>Math.hypot(r.col-s.player.col,r.row-s.player.row)<1.3);
     if(r) return {kind:"remains",label:"Remains",name:r.name};
     return null;
@@ -346,6 +363,7 @@ export default function Homebase(){
       stateRef.current={...s0,pods:[...(s0.pods||[]),...got],plants:s0.plants.map(p=>p.id===pl.id?{...p,stage:2,growth:0}:p)};
       addFloat(`+${got.length} ${podName(got[0]).toLowerCase()}${got.length>1?"s":""}`,"#d9e6a0"); refreshUi(); saveNow(); return;
     }
+    if(hint?.kind==="look"){ const pl=s0.plants.find(p=>p.id===hint.id); if(pl) addFloat(describePlant(pl),"#cbd5c0"); return; }
     if(hint?.kind==="remains"){ addFloat(`The remains of ${hint.name}. The plants here are doing well.`,"#cbd5c0"); return; }
     if(hint?.kind==="setdown"){
       const p=s0.player, [dc,dr]={up:[0,-0.7],down:[0,0.7],left:[-0.7,0],right:[0.7,0]}[p.facing]||[0,0.7];
@@ -458,7 +476,9 @@ export default function Homebase(){
       stateRef.current={...s,creatures:s.creatures.map(c=>(s.vine||[]).includes(c.id)?{...c,hp:Math.min(c.hp,0.1)}:c)};
       goHome(true); return;
     }
-    if(wild) addFloat(result==="win"?`The wild ${speciesOf(wild).name} ran off`:"You got away","#cbd5c0",s.trip.player);
+    // A wild creature that faints in battle dies: one fewer of its kind in this area
+    if(wild&&result==="win"){ stateRef.current={...s,world:takeFromPop(s.world,wild.col,wild.row,wild.species)}; addFloat(`The wild ${speciesOf(wild).name} fainted and didn't survive`,"#cbd5c0",s.trip.player); }
+    else if(wild) addFloat("You got away","#cbd5c0",s.trip.player);
     refreshUi(); saveNow();
   };
   const breakPod=podId=>{ const s=stateRef.current; stateRef.current={...s,pods:(s.pods||[]).filter(p=>p.id!==podId)}; refreshUi(); };
@@ -575,6 +595,7 @@ export default function Homebase(){
     stateRef.current={...s,pack:pk.includes(id)?pk.filter(x=>x!==id):pk.length<BAG_MAX?[...pk,id]:pk}; refreshUi(); saveNow();
   };
   const[choosingMate,setChoosingMate]=useState(false);
+  const[cardTab,setCardTab]=useState("care"); const swipeRef=useRef(null);
 
   // Order on the vine: if the lead faints, the next healthy one in line is sent in
   const moveInVine=(id,dir)=>{
@@ -787,6 +808,12 @@ export default function Homebase(){
   const known=id=>id==null?null:creatures.find(o=>o.id===id)||remembered.find(o=>o.id===id)||null;
   const cardC=cardId!=null?creatures.find(c=>c.id===cardId):null;
   const cardDead=cardId!=null&&!cardC?remembered.find(r=>r.id===cardId):null;
+  // The creature list's order (vine, then bag, then the rest; eggs last); the card steps through it
+  const listed=(()=>{ const rank=c=>{ const i=vine.indexOf(c.id); if(i>=0) return i; const j=(uiState.bag||[]).indexOf(c.id); return j>=0?10+j:100; };
+    const list=uiState.where==="out"?creatures.filter(c=>vine.includes(c.id)||(uiState.bag||[]).includes(c.id)):creatures;
+    return [...list].sort((a,b)=>rank(a)-rank(b)+(a.isEgg?1000:0)-(b.isEgg?1000:0)); })();
+  const navIds=listed.filter(c=>!c.isEgg).map(c=>c.id);
+  const stepCard=d=>{ const i=navIds.indexOf(cardId); if(i<0||navIds.length<2) return; setCardId(navIds[(i+d+navIds.length)%navIds.length]); setRenaming(null); setChoosingMate(false); setConfirmRelease(null); };
   const bar=(v,col)=>(
     <div style={{flex:1,height:6,background:"#1e2618",borderRadius:3,overflow:"hidden"}}>
       <div style={{width:`${Math.round(Math.max(0,Math.min(1,v))*100)}%`,height:"100%",background:col,borderRadius:3,transition:"width 0.6s"}}/>
@@ -946,9 +973,7 @@ export default function Homebase(){
               :"The creatures on your vine are the ones that will come with you through the door."}</div>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:6}}>{uiState.where==="out"?`With you · bag ${(uiState.bag||[]).length}/${BAG_MAX}`:"Living here"}</div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {(()=>{ const rank=c=>{ const i=vine.indexOf(c.id); if(i>=0) return i; const j=(uiState.bag||[]).indexOf(c.id); return j>=0?10+j:100; };
-                const list=uiState.where==="out"?creatures.filter(c=>vine.includes(c.id)||(uiState.bag||[]).includes(c.id)):creatures;
-                return [...list].sort((a,b)=>rank(a)-rank(b)+(a.isEgg?1000:0)-(b.isEgg?1000:0)); })().map(c=>{
+              {listed.map(c=>{
                 if(c.isEgg) return(
                   <button key={c.id} onClick={()=>{setCardId(c.id);setRenaming(null);}}
                     style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"left",fontFamily:"Georgia,serif",touchAction:"manipulation"}}>
@@ -1127,7 +1152,10 @@ export default function Homebase(){
         const cell=uiState.where==="out"?null:landRef.current?.cells[Math.floor(c.row)]?.[Math.floor(c.col)];
         return(
           <div data-scroll="" style={{...sheet,zIndex:120,background:"rgba(0,0,0,0.8)",justifyContent:"flex-end"}} onClick={e=>{ if(e.target===e.currentTarget){setCardId(null);setRenaming(null);} }}>
-            <div style={{...column,padding:0,marginBottom:"max(12px, env(safe-area-inset-bottom, 0px))"}}>
+            <div style={{...column,padding:0,marginBottom:"max(12px, env(safe-area-inset-bottom, 0px))"}}
+              onTouchStart={e=>{ const t=e.touches[0]; swipeRef.current={x:t.clientX,y:t.clientY}; }}
+              onTouchEnd={e=>{ const s0=swipeRef.current; swipeRef.current=null; if(!s0||renaming!==null) return; const t=e.changedTouches[0], dx=t.clientX-s0.x, dy=t.clientY-s0.y;
+                if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5) stepCard(dx<0?1:-1); }}>
               <div style={{margin:"0 12px",background:"#111511",border:`1px solid ${dnaColor(c.dna,28)}`,borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
                   <div style={{background:dnaColor(c.dna,10),borderRadius:12,padding:4}}><CreatureIcon c={c} size={64}/></div>
@@ -1150,6 +1178,16 @@ export default function Homebase(){
                   </div>
                   <button onClick={()=>{setCardId(null);setRenaming(null);}} aria-label="Close" style={{...closeBtn,alignSelf:"flex-start"}}>✕</button>
                 </div>
+                <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                  {navIds.length>1&&<button onClick={()=>stepCard(-1)} aria-label="Previous creature" style={{...btnBase,touchAction:"manipulation",width:36,height:32}}>‹</button>}
+                  {[["care","Care"],["genes","Genes & family"]].map(([k,l])=>(
+                    <button key={k} onClick={()=>setCardTab(k)} aria-pressed={cardTab===k}
+                      style={{...btnBase,flex:1,touchAction:"manipulation",height:32,fontSize:12,background:cardTab===k?"rgba(200,230,160,0.2)":"transparent",border:"1.5px solid "+(cardTab===k?"rgba(200,230,160,0.55)":"rgba(200,230,160,0.15)")}}>{l}</button>
+                  ))}
+                  {navIds.length>1&&<button onClick={()=>stepCard(1)} aria-label="Next creature" style={{...btnBase,touchAction:"manipulation",width:36,height:32}}>›</button>}
+                </div>
+                {navIds.length>1&&<div style={{color:"#4a5a3a",fontSize:10,textAlign:"center",marginTop:-6}}>{navIds.indexOf(c.id)+1} of {navIds.length} · swipe or use the arrows</div>}
+                {cardTab==="care"&&<>
                 {(c.starving||0)>0&&(
                   <div style={{background:"rgba(248,113,113,0.12)",border:"1px solid rgba(248,113,113,0.5)",borderRadius:8,padding:"6px 10px",color:"#fca5a5",fontSize:12,lineHeight:1.5}}>
                     Starving! It will die in about {formatDuration(Math.max(0,fastMs(c)-c.starving))} unless it eats.{uiState.where==="out"?"":" Make sure it can reach food, or feed it."}
@@ -1180,6 +1218,8 @@ export default function Homebase(){
                       ))}
                     </div>
                   </div>); })()}
+                </>}
+                {cardTab==="genes"&&<>
                 <div>
                   <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Genes</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 14px"}}>
@@ -1190,30 +1230,6 @@ export default function Homebase(){
                     ))}
                   </div>
                 </div>
-                {(()=>{ const pod=(uiState.pods||[]).find(p=>p.creatureId===c.id), empties=(uiState.pods||[]).filter(p=>p.creatureId==null).length;
-                  const foodN=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0), out=uiState.where==="out";
-                  return (
-                  <div>
-                    <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Pod</div>
-                    {pod?(
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{flex:1,color:"#cbd5c0",fontSize:12}}>🫛 {podName(pod)} <span style={{color:"#6b7a5e"}}>· food {pod.food}/{POD_FOOD_MAX}</span></span>
-                        <button onClick={()=>addPodFood(c.id)} disabled={pod.food>=POD_FOOD_MAX||!foodN} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:pod.food>=POD_FOOD_MAX||!foodN?0.45:1}}>+ Pack food</button>
-                      </div>
-                    ):(
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{flex:1,color:"#8a9a7a",fontSize:12}}>No pod yet. It needs one to go on your vine.</span>
-                        {!out&&<button onClick={()=>givePod(c.id)} disabled={!empties} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:empties?1:0.45}}>{empties?"Give it a pod":"No empty pods"}</button>}
-                      </div>
-                    )}
-                    {pod&&<div style={{color:"#4a5a3a",fontSize:11,marginTop:3,lineHeight:1.4}}>On your vine it eats packed food by itself when it gets hungry.</div>}
-                    {out&&(confirmRelease===c.id
-                      ?<div style={{display:"flex",gap:6,marginTop:6}}>
-                        <button onClick={()=>releaseCreature(c.id)} style={{...btnBase,flex:1,touchAction:"manipulation",height:34,fontSize:12,background:"rgba(248,113,113,0.14)",border:"1.5px solid rgba(248,113,113,0.5)",color:"#fca5a5"}}>Yes, release {c.name} here</button>
-                        <button onClick={()=>setConfirmRelease(null)} style={{...btnBase,touchAction:"manipulation",height:34,fontSize:12,padding:"0 12px"}}>Keep</button>
-                      </div>
-                      :<button onClick={()=>setConfirmRelease(c.id)} style={{...btnBase,width:"100%",marginTop:6,touchAction:"manipulation",height:32,fontSize:12,color:"#cbd5c0"}}>Release into the wild here</button>)}
-                  </div>); })()}
                 {(()=>{ const mom=known(c.motherId), dad=known(c.fatherId), mate=c.mateId!=null?creatures.find(o=>o.id===c.mateId):null;
                   const kids=[...creatures,...remembered].filter(o=>o.motherId===c.id||o.fatherId===c.id), eggs=kids.filter(o=>o.isEgg).length;
                   const link=o=>o?<button onClick={()=>{setCardId(o.id);setChoosingMate(false);}} style={{background:"none",border:"none",padding:0,color:o.dead?"#9aa88a":"#c8e6a0",fontFamily:"Georgia,serif",fontSize:12,textDecoration:"underline",cursor:"pointer"}}>{o.name}{o.dead?" †":""}</button>:<span style={{color:"#6b7a5e"}}>unknown</span>;
@@ -1245,6 +1261,32 @@ export default function Homebase(){
                       </div>
                     )}
                   </div>); })()}
+                </>}
+                {cardTab==="care"&&<>
+                {(()=>{ const pod=(uiState.pods||[]).find(p=>p.creatureId===c.id), empties=(uiState.pods||[]).filter(p=>p.creatureId==null).length;
+                  const foodN=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0), out=uiState.where==="out";
+                  return (
+                  <div>
+                    <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Pod</div>
+                    {pod?(
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{flex:1,color:"#cbd5c0",fontSize:12}}>🫛 {podName(pod)} <span style={{color:"#6b7a5e"}}>· food {pod.food}/{POD_FOOD_MAX}</span></span>
+                        <button onClick={()=>addPodFood(c.id)} disabled={pod.food>=POD_FOOD_MAX||!foodN} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:pod.food>=POD_FOOD_MAX||!foodN?0.45:1}}>+ Pack food</button>
+                      </div>
+                    ):(
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{flex:1,color:"#8a9a7a",fontSize:12}}>No pod yet. It needs one to go on your vine.</span>
+                        {!out&&<button onClick={()=>givePod(c.id)} disabled={!empties} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:empties?1:0.45}}>{empties?"Give it a pod":"No empty pods"}</button>}
+                      </div>
+                    )}
+                    {pod&&<div style={{color:"#4a5a3a",fontSize:11,marginTop:3,lineHeight:1.4}}>On your vine it eats packed food by itself when it gets hungry.</div>}
+                    {out&&(confirmRelease===c.id
+                      ?<div style={{display:"flex",gap:6,marginTop:6}}>
+                        <button onClick={()=>releaseCreature(c.id)} style={{...btnBase,flex:1,touchAction:"manipulation",height:34,fontSize:12,background:"rgba(248,113,113,0.14)",border:"1.5px solid rgba(248,113,113,0.5)",color:"#fca5a5"}}>Yes, release {c.name} here</button>
+                        <button onClick={()=>setConfirmRelease(null)} style={{...btnBase,touchAction:"manipulation",height:34,fontSize:12,padding:"0 12px"}}>Keep</button>
+                      </div>
+                      :<button onClick={()=>setConfirmRelease(c.id)} style={{...btnBase,width:"100%",marginTop:6,touchAction:"manipulation",height:32,fontSize:12,color:"#cbd5c0"}}>Release into the wild here</button>)}
+                  </div>); })()}
                 {onVine&&(()=>{ const i=vine.indexOf(c.id); return (
                   <div style={{display:"flex",gap:6,alignItems:"center"}}>
                     {i===0
@@ -1269,6 +1311,7 @@ export default function Homebase(){
                   style={{...btnBase,touchAction:"manipulation",height:40,fontSize:13,opacity:!onVine&&vine.length>=VINE_MAX?0.45:1,background:onVine?"rgba(134,239,172,0.14)":btnBase.background,border:"1.5px solid "+(onVine?"rgba(134,239,172,0.5)":"rgba(200,230,160,0.2)")}}>
                   {onVine?"On your vine · tap to take off":vine.length>=VINE_MAX?"Your vine is full (6)":`Put on your vine (${vine.length}/${VINE_MAX})`}
                 </button>}
+                </>}
               </div>
             </div>
           </div>
