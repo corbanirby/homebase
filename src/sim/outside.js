@@ -146,7 +146,7 @@ export function simulateOutside(state, tick, input, dtMs) {
     let { col, row, dcol, drow, wanderTimer, mood } = c;
     const dx = pc - col, dy = pr - row, d = Math.hypot(dx, dy);
     const st = lifeStage(c);
-    const spd = c.dna.speed * 0.03 * (st.id === "baby" ? 0.6 : st.id === "adolescent" ? 0.85 : 1);
+    const spd = c.dna.speed * (SPECIES[c.species]?.base?.spd ?? 1) * 0.03 * (st.id === "baby" ? 0.6 : st.id === "adolescent" ? 0.85 : 1);
     // Close enough to notice you: each decides once, by its temper
     if (!mood && d < 4) {
       const ag = c.dna.aggression;

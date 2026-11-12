@@ -69,7 +69,7 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     habitat += (habitatFit(c, cell) - habitat) * Math.min(1, dtMs / (2 * HOUR));
 
     const weak = fullness < WEAK_AT;
-    const spd = c.dna.speed * 0.03 * (STAGE_SPEED[st.id] || 1) * (weak ? 0.4 : 1);
+    const spd = c.dna.speed * (SPECIES[c.species]?.base?.spd ?? 1) * 0.03 * (STAGE_SPEED[st.id] || 1) * (weak ? 0.4 : 1);
     // Notice when it's trying to walk but not getting anywhere (being nudged aside by you undoes each step)
     stall = cs === "seek" && Math.hypot(col - (c.lastCol ?? -9), row - (c.lastRow ?? -9)) < spd * 0.3 ? stall + 1 : 0;
     const lastCol = col, lastRow = row;

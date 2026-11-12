@@ -967,7 +967,7 @@ export default function Homebase(){
                     style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid "+(vine.includes(c.id)?"rgba(134,239,172,0.35)":"#1e261a"),borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"left",fontFamily:"Georgia,serif",touchAction:"manipulation"}}>
                     <CreatureIcon c={c} size={40}/>
                     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}}>
-                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:vine[0]===c.id?"#fde68a":"#86efac",fontSize:10}}>{vine[0]===c.id?" · ★ lead":" · on vine"}</span>}{(uiState.bag||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · in bag</span>}</div>
+                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· Lv {c.level||1} · {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:vine[0]===c.id?"#fde68a":"#86efac",fontSize:10}}>{vine[0]===c.id?" · ★ lead":" · on vine"}</span>}{(uiState.bag||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · in bag</span>}</div>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                         <span style={{color:"#6b7a5e",fontSize:10,width:44}}>Fullness</span>{bar(c.fullness,c.fullness>=HUNGRY_AT?"#86efac":c.fullness>=WEAK_AT?"#facc15":"#f87171")}
                       </div>
