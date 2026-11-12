@@ -10,6 +10,7 @@ import { PLANT_SPECIES, fitOf } from "../plants/plants.js";
 export const POD_SIZES = ["small", "medium", "large"];
 export const POD_FOOD_MAX = 3;
 export const BIOME_LABEL = { wetland: "marsh" };
+export const POD_ICON_COLOR = { wetland: "#b9c97a", forest: "#8fbf5a", pine: "#c9a46a", stone: "#b8b8c0" };
 export const podName = p => `${p.size[0].toUpperCase() + p.size.slice(1)} ${BIOME_LABEL[p.biome] || p.biome} pod`;
 export const makePod = (size, biome = "wetland", creatureId = null) => ({ id: newId(), size, biome, creatureId, food: 0 });
 
@@ -19,7 +20,7 @@ export function sizeClass(speciesId) {
   return m <= 0.75 ? "small" : m <= 1.1 ? "medium" : "large";
 }
 // Which Atlanta land counts as each pod biome
-const BIOME_LANDS = { wetland: ["creek", "shoal", "river"] };
+const BIOME_LANDS = { wetland: ["creek", "shoal", "river"], forest: ["forest"], pine: ["pine", "clay"], stone: ["granite"] };
 // How well a pod suits a species, as a catch multiplier: size (a cramped pod is worse
 // than a roomy one) times biome (a pod from its own kind of land is best)
 export function podFit(pod, speciesId) {

@@ -1,5 +1,6 @@
 import { TS } from "../config.js";
 import { PLANT_SPECIES } from "../plants/plants.js";
+import { POD_ICON_COLOR } from "../creatures/pods.js";
 import { TILES } from "./tiles.js";
 import { lifeStage, speciesOf, spriteImage, facingOf } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
@@ -324,7 +325,7 @@ function drawPlant(ctx, p, cam) {
     const h = p.stage === 3 ? 7 + big * 2 : 5;
     px(0, -h, 1, h, "#4f7f2e"); px(-2, -h + 2, 2, 1, "#6a9f3c"); px(1, -h + 4, 2, 1, "#6a9f3c");
     if (p.stage === 3) for (const [dx, dy] of [[-2 - big, -h + 3], [1, -h + 5], [-1 - big, -h + 7]].slice(0, 2 + (big > 1 ? 1 : 0))) {
-      px(dx, dy, big + 1, big + 1, "#2f3a1e"); px(dx, dy, big, big, "#b9c97a"); px(dx, dy, 1, 1, "#e6efb0");
+      px(dx, dy, big + 1, big + 1, "#2f3a1e"); px(dx, dy, big, big, POD_ICON_COLOR[PLANT_SPECIES[p.species].biome] || "#b9c97a"); px(dx, dy, 1, 1, "#eef2d8");
     }
   } else { // bog moss: a soft cushion that swells as it grows
     const w = Math.round((p.stage === 3 ? 6 : 4) * full) + 1;

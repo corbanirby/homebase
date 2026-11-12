@@ -23,24 +23,29 @@ export const PLANT_SPECIES = {
     regrowHours: 72,
     seedsPerGather: 1, wetEffect: 0.05,
   },
-  // Marsh pod plants: each size is its own seed. A plant in a better spot gives more pods
-  // when you pick them, then regrows its pods. They don't spread and creatures don't eat them.
-  podsmall: {
-    name: "Small marsh pod", icon: "🫛", pod: "small", biome: "wetland",
-    wet: [0.55, 0.82, 1.0], temp: [0.3, 0.95], soils: ["rich", "poor", "mineral"],
-    stageHours: [2, 10, 12], spreadHours: 1e9, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.02,
-  },
-  podmedium: {
-    name: "Medium marsh pod", icon: "🫛", pod: "medium", biome: "wetland",
-    wet: [0.58, 0.84, 1.0], temp: [0.3, 0.95], soils: ["rich", "poor", "mineral"],
-    stageHours: [3, 18, 27], spreadHours: 1e9, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.03,
-  },
-  podlarge: {
-    name: "Large marsh pod", icon: "🫛", pod: "large", biome: "wetland",
-    wet: [0.62, 0.86, 1.0], temp: [0.3, 0.95], soils: ["rich", "mineral"],
-    stageHours: [4, 30, 62], spreadHours: 1e9, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.04,
-  },
 };
+// ─── Pod plants ───────────────────────────────────────────────────────────────
+// Four kinds of land, three sizes each. Plant an empty pod and it grows into a pod
+// plant of its kind and size; picking it gives 1–3 pods (more in a better spot) and
+// takes the plant. Left alone, a grown pod plant slowly seeds the ground next to it.
+// Creatures don't eat them.
+export const POD_KINDS = {
+  wetland: { label: "marsh",  wet: [0.55, 0.82, 1.0],  soils: ["rich", "poor", "mineral"] },
+  forest:  { label: "forest", wet: [0.3, 0.55, 0.85],  soils: ["rich", "poor"], shade: true },
+  pine:    { label: "pine",   wet: [0.1, 0.3, 0.6],    soils: ["sandy", "poor"] },
+  stone:   { label: "stone",  wet: [0.0, 0.2, 0.5],    soils: ["mineral", "sandy"] },
+};
+const POD_GROW = { small: [2, 10, 12], medium: [3, 18, 27], large: [4, 30, 62] };
+const POD_SPREAD = { small: 48, medium: 72, large: 120 };
+// Marsh pods keep their old ids so planted ones in older saves still work
+export const podPlantId = (size, biome) => biome === "wetland" ? "pod" + size : biome + "pod" + size;
+for (const [biome, k] of Object.entries(POD_KINDS)) for (const size of ["small", "medium", "large"]) {
+  PLANT_SPECIES[podPlantId(size, biome)] = {
+    name: `${size[0].toUpperCase() + size.slice(1)} ${k.label} pod`, icon: "🫛", pod: size, biome,
+    wet: [k.wet[0], k.wet[1], k.wet[2]], temp: [0.2, 0.95], soils: k.soils, shade: !!k.shade,
+    stageHours: POD_GROW[size], spreadHours: POD_SPREAD[size], regrowHours: 1e9, wetEffect: 0.02,
+  };
+}
 export const GATHER_COOLDOWN_MS = 6 * H;
 // How much of a plant's food a grazing creature turns into fullness. Tuned so a new
 // homebase feeds about 6 Ramtarugs, rising to about 8 as the plants spread.
@@ -56,7 +61,7 @@ export function fitOf(speciesId, cell) {
   if (cell.wet < lo || cell.wet > hi) return 0;
   const wetFit = cell.wet <= ideal ? (cell.wet - lo) / (ideal - lo) : 1 - (cell.wet - ideal) / (hi - ideal + 0.0001) * 0.5;
   if (cell.temp < sp.temp[0] || cell.temp > sp.temp[1]) return 0;
-  const shade = cell.veg >= 3 ? 0.5 : 1; // little grows well under trees
+  const shade = cell.veg >= 3 && !sp.shade ? 0.5 : 1; // little grows well under trees (forest pods do)
   return Math.max(0, Math.min(1, (0.25 + wetFit * 0.75) * shade));
 }
 export function fitWord(fit, cell, speciesId) {
@@ -65,6 +70,7 @@ export function fitWord(fit, cell, speciesId) {
   const sp = PLANT_SPECIES[speciesId];
   if (!sp.soils.includes(cell.soil)) return "Wrong soil";
   if (cell.wet < sp.wet[0]) return "Too dry";
+  if (cell.wet > sp.wet[2]) return "Too wet";
   if (cell.temp < sp.temp[0]) return "Too cold";
   if (cell.temp > sp.temp[1]) return "Too hot";
   if (fit >= 0.75) return "Great spot";

@@ -10,13 +10,13 @@ import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
 import { dnaColor } from "./creatures/dna.js";
 import { makePlayer } from "./creatures/factory.js";
 import { makeResident, pickName, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
-import { PLANT_SPECIES, GATHER_COOLDOWN_MS, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
+import { PLANT_SPECIES, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate } from "./creatures/breeding.js";
-import { podName, podFit, fitLabel, bestPod, podsFromPlant, starterPods, podSeedsToPods, POD_FOOD_MAX } from "./creatures/pods.js";
+import { podName, podFit, fitLabel, bestPod, podsFromPlant, makePod, starterPods, podSeedsToPods, POD_FOOD_MAX } from "./creatures/pods.js";
 import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
-import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor } from "./sim/outside.js";
+import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor, wildPlants, pickWild, wildPlantSpots } from "./sim/outside.js";
 import { atlanta, areaKey, BIOME_NAMES } from "./world/atlanta.js";
 import { learnMoveAtLevel, deriveMoves } from "./battle/moves.js";
 import { BattleScreen } from "./battle/BattleScreen.jsx";
@@ -80,7 +80,11 @@ const withPods=s=>{
   const byId=new Map(creatures.map(c=>[c.id,c]));
   return {...s,pods,creatures:(s.creatures||[]).map(c=>byId.get(c.id)||c)};
 };
-const withTripFields=s0=>{ const s=podSeedsToPods(withPods({...s0,creatures:(s0.creatures||[]).map(ensureGenome)})); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+// Food and seeds are one thing now: a moss clump or cattail shoots can be eaten, packed or planted
+const seedsToFood=s=>{ const seeds=s.seeds||{}, food={...(s.food||{bogmoss:2,cattail:1})}; let moved=false;
+  for(const k of Object.keys(seeds)) if(!PLANT_SPECIES[k]?.pod&&seeds[k]>0){ food[k]=(food[k]||0)+seeds[k]; moved=true; }
+  return moved||s.seeds?{...s,food,seeds:{}}:s; };
+const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods({...s0,creatures:(s0.creatures||[]).map(ensureGenome)}))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
@@ -106,7 +110,7 @@ function makeNewWorld(){
   const she=raiseToLevel(makeResident({...spots[0],sex:"F",name:pickName()}),STARTER_LEVEL);
   const he=raiseToLevel(makeResident({...spots[1],sex:"M",name:pickName([she.name])}),STARTER_LEVEL);
   const plants=startingPlants(land);
-  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, seeds:{bogmoss:5,cattail:3}, events:[], floats:[], tick:0, clock:0 }) };
+  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, food:{bogmoss:6,cattail:4}, events:[], floats:[], tick:0, clock:0 }) };
 }
 
 const fmtAge=ms=>{ const d=Math.floor(ms/DAY), h=Math.floor((ms%DAY)/3600000); return d?`${d} ${d===1?"day":"days"}${h?" "+h+" h":""}`:`${h} ${h===1?"hour":"hours"}`; };
@@ -158,7 +162,7 @@ export default function Homebase(){
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0});
   // Test hook: with ?debug in the address, automated tests can steer and read the world
-  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef}; },[]);
+  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots}; },[]);
 
   const[saveInfo,setSaveInfo]=useState(()=>readSave());
   const[screen,setScreen]=useState("title"); // title | game
@@ -191,7 +195,7 @@ export default function Homebase(){
     const d=readSave(); if(!d) { setScreen("title"); return; }
     landRef.current=d.land;
     const away=Date.now()-(d.savedAt||Date.now());
-    const {state,report}=advanceAway(withTripFields({...d.state,seeds:d.state.seeds||{bogmoss:5,cattail:3},vine:d.state.vine||[],events:[],floats:[]}),d.land,away,speedRef.current);
+    const {state,report}=advanceAway(withTripFields({...d.state,vine:d.state.vine||[],events:[],floats:[]}),d.land,away,speedRef.current);
     const map=deriveMap(d.land);
     mapRef.current=map; groundRef.current=buildGround(map);
     stateRef.current=state; tickRef.current=0;
@@ -238,27 +242,19 @@ export default function Homebase(){
     const [dc,dr]={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}[p.facing]||[0,1];
     return {c:Math.floor(p.col)+dc,r:Math.floor(p.row)+dr};
   };
-  const gatherable=()=>{
-    const s=stateRef.current; if(!s) return null;
-    const now=Date.now();
-    return s.plants.filter(pl=>pl.stage===3&&!PLANT_SPECIES[pl.species]?.pod&&(now-(pl.lastGather||0))*speedRef.current>=GATHER_COOLDOWN_MS)
-      .map(pl=>({pl,d:Math.hypot(pl.col-s.player.col,pl.row-s.player.row)}))
-      .filter(x=>x.d<1.6).sort((a,b)=>a.d-b.d)[0]?.pl||null;
-  };
   function gardenInfo(){
     const t=targetTile(), land=landRef.current; if(!t||!land) return null;
     const cell=land.cells[t.r]?.[t.c];
     const occupied=!!stateRef.current.plants.find(pl=>plantKey(pl)===t.c+","+t.r);
     const fits={}; for(const id of Object.keys(PLANT_SPECIES)){ const f=fitOf(id,cell); fits[id]={fit:f,word:occupied?"Already planted":fitWord(f,cell,id)}; }
-    const g=gatherable();
-    return {target:t,fits,occupied,gather:g?PLANT_SPECIES[g.species].name:null};
+    return {target:t,fits,occupied};
   }
   const addFloat=(text,color,at=null)=>{ const s=stateRef.current; const p=at||s.player; stateRef.current={...s,floats:[...s.floats,{id:newId(),col:p.col,row:p.row,text,color,tick:tickRef.current}]}; };
   const plantSeed=id=>{
     const s=stateRef.current, land=landRef.current, t=targetTile(); if(!s||!land||!t) return;
     // A pod plant is grown from an empty pod of its size
-    const podSize=PLANT_SPECIES[id]?.pod, seedPod=podSize?(s.pods||[]).find(p=>p.creatureId==null&&p.size===podSize):null;
-    if(podSize?!seedPod:!(s.seeds?.[id]>0)) { addFloat(podSize?"No empty pod of that size":"No seeds left","#f87171"); return; }
+    const sp0=PLANT_SPECIES[id], podSize=sp0?.pod, seedPod=podSize?(s.pods||[]).find(p=>p.creatureId==null&&p.size===podSize&&p.biome===sp0.biome):null;
+    if(podSize?!seedPod:!(s.food?.[id]>0)) { addFloat(podSize?"No empty pod of that kind":"None left to plant","#f87171"); return; }
     const cell=land.cells[t.r]?.[t.c];
     if(!cell||cell.water||cell.edge||cell.mother||!isPassable(mapRef.current,t.c+0.5,t.r+0.5)) { addFloat("Can't plant there","#f87171"); return; }
     if(s.plants.find(pl=>plantKey(pl)===t.c+","+t.r)) { addFloat("Already planted","#facc15"); return; }
@@ -266,18 +262,10 @@ export default function Homebase(){
     if(f<=0) { addFloat(fitWord(f,cell,id),"#f87171"); return; }
     stateRef.current=podSize
       ?{...s,plants:[...s.plants,makeSeedling(id,t.c,t.r,0)],pods:s.pods.filter(p=>p.id!==seedPod.id)}
-      :{...s,plants:[...s.plants,makeSeedling(id,t.c,t.r,0)],seeds:{...s.seeds,[id]:s.seeds[id]-1}};
+      :{...s,plants:[...s.plants,makeSeedling(id,t.c,t.r,0)],food:{...s.food,[id]:s.food[id]-1}};
     addFloat("🌱 Planted","#86efac");
-    setUiState(u=>({...u,seeds:stateRef.current.seeds,pods:stateRef.current.pods,garden:gardenInfo()}));
+    setUiState(u=>({...u,food:stateRef.current.food,pods:stateRef.current.pods,garden:gardenInfo()}));
   };
-  const gatherSeeds=()=>{
-    const g=gatherable(); if(!g) { addFloat("Nothing ripe nearby","#94a3b8"); return; }
-    const s=stateRef.current, sp=PLANT_SPECIES[g.species];
-    stateRef.current={...s,plants:s.plants.map(pl=>pl.id===g.id?{...pl,lastGather:Date.now(),energy:Math.max(0.1,pl.energy-0.2)}:pl),seeds:{...s.seeds,[g.species]:(s.seeds?.[g.species]||0)+sp.seedsPerGather}};
-    addFloat(`+${sp.seedsPerGather} ${sp.name} seed${sp.seedsPerGather>1?"s":""}`,"#86efac");
-    setUiState(u=>({...u,seeds:stateRef.current.seeds,garden:gardenInfo()}));
-  };
-
   // ── Act: pet the creature next to you, or gather seeds from a ripe plant
   const nearestCreature=()=>{
     const s=stateRef.current; if(!s) return null;
@@ -341,6 +329,14 @@ export default function Homebase(){
       if(!hint){ addFloat("Nothing to do here","#94a3b8",s0.trip.player); return; }
       if(hint.kind==="battle"){ startBattle(hint.wild,"approach"); return; }
       if(hint.kind==="home"){ goHome(); return; }
+      if(hint.kind==="forage"){
+        const pl=wildPlantSpots().find(p=>p.key===hint.key); if(!pl) return;
+        const {world,n,pod}=pickWild(s0.world,pl,speedRef.current), sp=PLANT_SPECIES[pl.species];
+        const got=pod?Array.from({length:n},()=>makePod(sp.pod,sp.biome)):[];
+        stateRef.current={...s0,world,pods:[...(s0.pods||[]),...got],food:pod?s0.food:{...s0.food,[pl.species]:(s0.food?.[pl.species]||0)+n}};
+        addFloat(pod?`+${n} ${podName(got[0]).toLowerCase()}${n>1?"s":""}`:`+${n} ${FOOD_NAMES[pl.species]}`,pod?"#d9e6a0":"#86efac",s0.trip.player);
+        refreshUi(); saveNow(); return;
+      }
       if(hint.kind==="rest"){
         // Each spring (or stretch of shoals) restores a quarter of each creature's health, then needs an hour to refill
         const tp=s0.trip.player, w=atlanta(), kind=spotAt(s0);
@@ -360,7 +356,7 @@ export default function Homebase(){
     if(hint?.kind==="pick"){
       const pl=pickable(); if(!pl) return;
       const got=podsFromPlant(pl,landRef.current?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)]);
-      stateRef.current={...s0,pods:[...(s0.pods||[]),...got],plants:s0.plants.map(p=>p.id===pl.id?{...p,stage:2,growth:0}:p)};
+      stateRef.current={...s0,pods:[...(s0.pods||[]),...got],plants:s0.plants.filter(p=>p.id!==pl.id)};
       addFloat(`+${got.length} ${podName(got[0]).toLowerCase()}${got.length>1?"s":""}`,"#d9e6a0"); refreshUi(); saveNow(); return;
     }
     if(hint?.kind==="look"){ const pl=s0.plants.find(p=>p.id===hint.id); if(pl) addFloat(describePlant(pl),"#cbd5c0"); return; }
@@ -373,8 +369,10 @@ export default function Homebase(){
     }
     if(hint?.kind==="harvest"){
       const pl=harvestable(); if(!pl) return;
-      stateRef.current={...s0,plants:s0.plants.map(p=>p.id===pl.id?{...p,energy:p.energy-0.6}:p),food:{...s0.food,[pl.species]:(s0.food?.[pl.species]||0)+1}};
-      addFloat("+1 "+FOOD_NAMES[pl.species],"#86efac"); refreshUi(); return;
+      // Harvesting takes the whole plant: 3 from a plant in full leaf, 2 from one that's been grazed
+      const n=pl.energy>=0.9?3:2;
+      stateRef.current={...s0,plants:s0.plants.filter(p=>p.id!==pl.id),food:{...s0.food,[pl.species]:(s0.food?.[pl.species]||0)+n}};
+      addFloat(`+${n} ${FOOD_NAMES[pl.species]}`,"#86efac"); landDirtyRef.current=true; refreshUi(); saveNow(); return;
     }
     const c=hint?.kind==="pet"?stateRef.current.creatures.find(o=>o.id===hint.id):null;
     if(c&&c.isEgg){ refreshUi(); setCardId(c.id); return; }
@@ -728,7 +726,7 @@ export default function Homebase(){
         const sO=stateRef.current, z=zoomRef.current;
         if(!outGroundRef.current) outGroundRef.current=buildGround(atlanta().tiles);
         ctx.setTransform(dpr*z,0,0,dpr*z,0,0);
-        drawWorld(ctx,dims.W/z,dims.H/z,{player:sO.trip.player,creatures:sO.trip.wilds,plants:[],floats:sO.floats||[],rustles:sO.trip.rustles},atlanta().tiles,outGroundRef.current,tickRef.current,null,null,null,focusRef.current);
+        drawWorld(ctx,dims.W/z,dims.H/z,{player:sO.trip.player,creatures:sO.trip.wilds,plants:wildPlants(sO.world),floats:sO.floats||[],rustles:sO.trip.rustles},atlanta().tiles,outGroundRef.current,tickRef.current,null,null,null,focusRef.current);
         return;
       }
       if(landDirtyRef.current&&ts-lastGroundRef.current>400){
@@ -892,14 +890,15 @@ export default function Homebase(){
               <span style={{color:"#c8e6a0",fontSize:12,letterSpacing:"0.08em"}}>Seeds</span>
               <button onClick={()=>setShowSeeds(false)} aria-label="Close seeds" style={{background:"transparent",border:"none",color:"#94a3b8",fontSize:16,cursor:"pointer",padding:"0 4px"}}>✕</button>
             </div>
-            {Object.entries(PLANT_SPECIES).map(([id,sp])=>{
-              const n=sp.pod?(uiState.pods||[]).filter(p=>p.creatureId==null&&p.size===sp.pod).length:(uiState.seeds?.[id]||0), f=uiState.garden?.fits?.[id];
+            {Object.entries(PLANT_SPECIES).map(([id,sp])=>[id,sp,sp.pod?(uiState.pods||[]).filter(p=>p.creatureId==null&&p.size===sp.pod&&p.biome===sp.biome).length:(uiState.food?.[id]||0)])
+              .filter(([,sp,n])=>!sp.pod||n>0).map(([id,sp,n])=>{
+              const f=uiState.garden?.fits?.[id];
               const good=f&&f.fit>0&&!uiState.garden.occupied;
               return(
                 <div key={id} style={{display:"flex",alignItems:"center",gap:8}}>
                   <span style={{fontSize:15}}>{sp.icon}</span>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{color:"#e2e8f0",fontSize:12}}>{sp.pod?sp.name.replace(" marsh",""):sp.name} <span style={{color:"#86efac"}}>×{n}</span></div>
+                    <div style={{color:"#e2e8f0",fontSize:12}}>{sp.pod?sp.name:FOOD_NAMES[id]} <span style={{color:"#86efac"}}>×{n}</span></div>
                     <div style={{color:good?(f.fit>=0.45?"#86efac":"#facc15"):"#f87171",fontSize:10}}>{f?f.word:"–"}</div>
                   </div>
                   <button onClick={()=>plantSeed(id)} disabled={!n||!good}
@@ -907,10 +906,7 @@ export default function Homebase(){
                 </div>
               );
             })}
-            <button onClick={gatherSeeds} disabled={!uiState.garden?.gather}
-              style={{...btnBase,height:30,fontSize:11,opacity:uiState.garden?.gather?1:0.4}}>
-              {uiState.garden?.gather?`Gather ${uiState.garden.gather} seeds`:"Gather (stand by a grown plant)"}
-            </button>
+            <div style={{color:"#4a5a3a",fontSize:10,lineHeight:1.4}}>Planting uses one from your food. Pods you have show up here too.</div>
           </div>
         )}
         <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",flex:1}}>
@@ -932,9 +928,9 @@ export default function Homebase(){
                 style={{...btnBase,width:58,height:40}}>
                 <span style={{fontSize:14}}>🎒</span>
               </button>
-              <button disabled={uiState.where==="out"} onClick={()=>{setShowSeeds(v=>!v);setUiState(u=>({...u,garden:gardenInfo(),seeds:stateRef.current?.seeds||{}}));}} onContextMenu={e=>e.preventDefault()} aria-label="Seeds"
+              <button disabled={uiState.where==="out"} onClick={()=>{setShowSeeds(v=>!v);setUiState(u=>({...u,garden:gardenInfo(),food:stateRef.current?.food||{}}));}} onContextMenu={e=>e.preventDefault()} aria-label="Seeds"
                 style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1,opacity:uiState.where==="out"?0.35:1,background:showSeeds?"rgba(134,239,172,0.16)":btnBase.background,border:showSeeds?"1.5px solid rgba(134,239,172,0.5)":btnBase.border}}>
-                <span style={{fontSize:14}}>🌱</span><span style={{fontSize:9,color:"#86efac"}}>{Object.values(uiState.seeds||{}).reduce((a,b)=>a+b,0)}</span>
+                <span style={{fontSize:14}}>🌱</span><span style={{fontSize:9,color:"#86efac"}}>{Object.values(uiState.food||{}).reduce((a,b)=>a+b,0)}</span>
               </button>
               <button onClick={togglePause} onContextMenu={e=>e.preventDefault()} aria-label={uiState.paused?"Resume":"Pause"}
                 style={{...btnBase,width:58,height:40}}>
@@ -1033,14 +1029,6 @@ export default function Homebase(){
             <button onClick={()=>setPanel(null)} aria-label="Close" style={closeBtn}>✕</button>
           </div>
           <div style={{...column,display:"flex",flexDirection:"column",gap:8}}>
-            <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase"}}>Seeds</div>
-            {Object.entries(PLANT_SPECIES).filter(([,sp])=>!sp.pod).map(([id,sp])=>(
-              <div key={id} style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px"}}>
-                <span style={{fontSize:18}}>{sp.icon}</span>
-                <span style={{flex:1,color:"#e2e8f0",fontSize:13}}>{sp.name} seeds</span>
-                <span style={{color:"#86efac",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{uiState.seeds?.[id]||0}</span>
-              </div>
-            ))}
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Food</div>
             {Object.entries(FOOD_NAMES).map(([id,label])=>(
               <div key={id} style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px"}}>
@@ -1049,7 +1037,7 @@ export default function Homebase(){
                 <span style={{color:"#86efac",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{uiState.food?.[id]||0}</span>
               </div>
             ))}
-            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Harvest food from grown plants at home with Act. Feed a creature from its card.</div>
+            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Harvest grown plants at home or pick them in the wild with Act. Harvesting takes the whole plant. Each one can be eaten (feed from a creature's card), packed in a pod, or planted from the Seeds tray.</div>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Empty pods</div>
             {(()=>{ const groups={}; for(const p of (uiState.pods||[]).filter(p=>p.creatureId==null)){ const k=podName(p); groups[k]=(groups[k]||0)+1; }
               const keys=Object.keys(groups);
@@ -1057,8 +1045,8 @@ export default function Homebase(){
                 <div key={k} style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px"}}>
                   <span style={{fontSize:18}}>🫛</span><span style={{flex:1,color:"#e2e8f0",fontSize:13}}>{k}</span>
                   <span style={{color:"#d9e6a0",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{groups[k]}</span>
-                </div>)):<div style={{color:"#4a5a3a",fontSize:12}}>None. Grow marsh pod plants at home and pick them with Act.</div>; })()}
-            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Plant an empty pod (in the Seeds tray) to grow a pod plant of that size. You catch with empty pods; they don't take space in your bag. A pod that suits the creature (its size, and its kind of land) works better.</div>
+                </div>)):<div style={{color:"#4a5a3a",fontSize:12}}>None. Pick pod plants in the wild, or grow your own at home.</div>; })()}
+            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Plant an empty pod (in the Seeds tray) to grow a pod plant of that kind and size; left alone, it slowly spreads. You catch with empty pods; they don't take space in your bag. A pod that suits the creature (its size, and its kind of land) works better.</div>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Creatures · {(uiState.bag||[]).length}/{BAG_MAX}</div>
             {(uiState.bag||[]).length?(
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -1151,12 +1139,12 @@ export default function Homebase(){
         const c=cardC, st=lifeStage(c), nx=nextStageIn(c), v=conditionOf(c), onVine=vine.includes(c.id);
         const cell=uiState.where==="out"?null:landRef.current?.cells[Math.floor(c.row)]?.[Math.floor(c.col)];
         return(
-          <div data-scroll="" style={{...sheet,zIndex:120,background:"rgba(0,0,0,0.8)",justifyContent:"flex-end"}} onClick={e=>{ if(e.target===e.currentTarget){setCardId(null);setRenaming(null);} }}>
-            <div style={{...column,padding:0,marginBottom:"max(12px, env(safe-area-inset-bottom, 0px))"}}
+          <div data-scroll="" style={{...sheet,zIndex:120,background:"rgba(0,0,0,0.8)"}} onClick={e=>{ if(e.target===e.currentTarget){setCardId(null);setRenaming(null);} }}>
+            <div style={{...column,padding:0,flex:"1 0 auto",display:"flex",flexDirection:"column",marginTop:"max(12px, env(safe-area-inset-top, 0px))",marginBottom:"max(12px, env(safe-area-inset-bottom, 0px))"}}
               onTouchStart={e=>{ const t=e.touches[0]; swipeRef.current={x:t.clientX,y:t.clientY}; }}
               onTouchEnd={e=>{ const s0=swipeRef.current; swipeRef.current=null; if(!s0||renaming!==null) return; const t=e.changedTouches[0], dx=t.clientX-s0.x, dy=t.clientY-s0.y;
                 if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5) stepCard(dx<0?1:-1); }}>
-              <div style={{margin:"0 12px",background:"#111511",border:`1px solid ${dnaColor(c.dna,28)}`,borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{margin:"0 12px",flex:"1 0 auto",background:"#111511",border:`1px solid ${dnaColor(c.dna,28)}`,borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
                   <div style={{background:dnaColor(c.dna,10),borderRadius:12,padding:4}}><CreatureIcon c={c} size={64}/></div>
                   <div style={{flex:1,minWidth:0}}>

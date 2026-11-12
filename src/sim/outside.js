@@ -5,6 +5,7 @@ import { SPECIES, ATLANTA_SPECIES, lifeStage } from "../creatures/species.jsx";
 import { makeWild, DAY, STARVE_MS, HOUR } from "../creatures/resident.js";
 import { movePlayer } from "./movement.js";
 import { incubateCarried, hatchEgg } from "../creatures/breeding.js";
+import { PLANT_SPECIES, podPlantId } from "../plants/plants.js";
 
 // ─── Life in the shared world ─────────────────────────────────────────────────
 // Each 16×16 area keeps a number for each species, set by how much of the land
@@ -195,6 +196,51 @@ export function simulateOutside(state, tick, input, dtMs) {
   };
 }
 
+// ─── Wild plants ──────────────────────────────────────────────────────────────
+// Moss, cattail and marsh pods grow on the wet banks of creeks, springs and the
+// river; forest, pine and stone pods grow in their own land. Their spots are fixed
+// (same map every trip). Picking one takes it, and it grows back after a few days,
+// the way the creature numbers recover. state.world.picked holds when each regrows.
+const WILD_REGROW_MS = { food: 2 * DAY, pod: 3 * DAY };
+function h2(x, y, s) { let h = (x * 374761393 + y * 668265263 + s * 982451653) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; }
+let wildSpots = null;
+export function wildPlantSpots() {
+  if (wildSpots) return wildSpots;
+  const w = atlanta(), out = [], WET = new Set(["creek", "water", "shoal", "spring"]);
+  for (let r = 1; r < w.H - 1; r++) for (let c = 1; c < w.W - 1; c++) {
+    const t = w.tiles[r][c], b = w.biome[r][c];
+    if (!isPassable(w.tiles, c + 0.5, r + 0.5) || isCover(w.tiles, c + 0.5, r + 0.5) || WET.has(t) || t === "door") continue;
+    if (distFromDoor(c + 0.5, r + 0.5) < 4) continue;
+    let bank = false;
+    for (let dr = -1; dr <= 1 && !bank; dr++) for (let dc = -1; dc <= 1; dc++) if (WET.has(w.tiles[r + dr][c + dc])) { bank = true; break; }
+    const h = h2(c, r, 41), z = h2(c, r, 43), size = z < 0.55 ? "small" : z < 0.85 ? "medium" : "large";
+    let species = null;
+    if (bank) species = h < 0.09 ? "bogmoss" : h < 0.15 ? "cattail" : h < 0.19 ? podPlantId(size, "wetland") : null;
+    else if (b === "forest") species = h < 0.018 ? podPlantId(size, "forest") : null;
+    else if (b === "pine" || b === "clay") species = h < 0.02 ? podPlantId(size, "pine") : null;
+    else if (b === "granite") species = h < 0.04 ? podPlantId(size, "stone") : null;
+    if (species) out.push({ key: c + "," + r, species, col: c + 0.5, row: r + 0.5, stage: 3, energy: 1, health: 1, wild: true });
+  }
+  wildSpots = out;
+  return out;
+}
+// The wild plants standing right now (picked ones are gone until they regrow)
+export function wildPlants(world, now = Date.now()) {
+  const picked = world?.picked || {};
+  return wildPlantSpots().filter(p => !(picked[p.key] > now));
+}
+export function nearWildPlant(state, now = Date.now()) {
+  const p = state.trip.player;
+  return wildPlants(state.world, now).map(pl => ({ pl, d: Math.hypot(pl.col - p.col, pl.row - p.row) })).filter(x => x.d < 1.1).sort((a, b) => a.d - b.d)[0]?.pl || null;
+}
+// Picking a wild plant: food plants give 2–3, pod plants 1–3 pods. It regrows in a few days.
+export function pickWild(world, pl, speed = 1, now = Date.now()) {
+  const pod = !!PLANT_SPECIES[pl.species]?.pod;
+  const n = pod ? 1 + Math.floor(Math.random() * 3) : 2 + (Math.random() < 0.5 ? 1 : 0);
+  const until = now + WILD_REGROW_MS[pod ? "pod" : "food"] / speed;
+  return { world: { ...world, picked: { ...(world.picked || {}), [pl.key]: until } }, n, pod };
+}
+
 // A resting spot you're standing at: your door, a spring, or a river shoal
 export function spotAt(state) {
   const w = atlanta(), p = state.trip.player;
@@ -208,6 +254,8 @@ export function outsideAct(state) {
   const p = state.trip.player;
   const near = state.trip.wilds.map(c => ({ c, d: Math.hypot(c.col - p.col, c.row - p.row) })).filter(x => x.d < 1.6).sort((a, b) => a.d - b.d)[0];
   if (near) return { kind: "battle", label: "Battle", wild: near.c };
+  const pl = nearWildPlant(state);
+  if (pl) return { kind: "forage", label: PLANT_SPECIES[pl.species].pod ? "Pick pods" : "Pick " + PLANT_SPECIES[pl.species].name.toLowerCase(), key: pl.key };
   const spot = spotAt(state);
   if (spot === "door") return { kind: "home", label: "Go home" };
   if (spot) return { kind: "rest", label: "Rest" };
