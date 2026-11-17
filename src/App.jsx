@@ -1199,9 +1199,9 @@ export default function Homebase(){
                 </div>
                 <div style={{display:"flex",gap:6,alignItems:"center"}}>
                   {navIds.length>1&&<button onClick={()=>stepCard(-1)} aria-label="Previous creature" style={{...btnBase,touchAction:"manipulation",width:36,height:32}}>‹</button>}
-                  {[["care","Care"],["genes","Genes & family"]].map(([k,l])=>(
+                  {[["care","Care"],["moves","Moves"],["genes","Genes & family"]].map(([k,l])=>(
                     <button key={k} onClick={()=>setCardTab(k)} aria-pressed={cardTab===k}
-                      style={{...btnBase,flex:1,touchAction:"manipulation",height:32,fontSize:12,background:cardTab===k?"rgba(200,230,160,0.2)":"transparent",border:"1.5px solid "+(cardTab===k?"rgba(200,230,160,0.55)":"rgba(200,230,160,0.15)")}}>{l}</button>
+                      style={{...btnBase,flex:1,touchAction:"manipulation",height:32,fontSize:11,whiteSpace:"nowrap",padding:"0 4px",background:cardTab===k?"rgba(200,230,160,0.2)":"transparent",border:"1.5px solid "+(cardTab===k?"rgba(200,230,160,0.55)":"rgba(200,230,160,0.15)")}}>{l}</button>
                   ))}
                   {navIds.length>1&&<button onClick={()=>stepCard(1)} aria-label="Next creature" style={{...btnBase,touchAction:"manipulation",width:36,height:32}}>›</button>}
                 </div>
@@ -1242,26 +1242,41 @@ export default function Homebase(){
                     <span style={{color:word==="Fresh"?"#86efac":word==="Winded"?"#facc15":"#f87171"}}>Stamina: {word}</span>
                     {sts.map(x=>{ const d=STATUS[x.id]||{}; return <span key={x.id} style={{background:(d.color||"#888")+"22",border:`1px solid ${d.color||"#888"}`,color:d.color||"#ccc",borderRadius:4,padding:"1px 6px",fontSize:10}}>{d.icon} {d.name||x.id}{x.n>1?" "+x.n:""} · {formatDuration(x.ms/(uiState.where==="out"?(uiState.bag||[]).includes(c.id)?0.5:1:2))} left</span>; })}
                   </div>); })()}
-                {(()=>{ const ids=c.learned?.length?c.learned:(c.moves||[]).map(m=>m.id), on=new Set((c.moves||[]).map(m=>m.id));
-                  return (
-                  <div>
-                    <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Moves · brings {on.size} of {ids.length}</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                      {ids.map(id=>{ const m=moveById(id); if(!m) return null; const eq=on.has(id), tier=masteryTier(c.mastery?.[id]||0), fx=moveEffectText(m), col=TYPE_COLORS[m.type]||"#aaa";
-                        const can=uiState.atSwap&&ids.length>1&&(eq?on.size>1:on.size<4);
-                        return (
-                        <button key={id} onClick={()=>can&&toggleMove(c.id,id)} aria-pressed={eq} disabled={!can&&!eq}
-                          style={{...btnBase,display:"block",textAlign:"left",padding:"5px 8px",borderRadius:8,background:eq?col+"22":"transparent",border:`1.5px solid ${eq?col+"99":"#1c2418"}`,opacity:eq||can?1:0.6,cursor:can?"pointer":"default"}}>
-                          <div style={{display:"flex",justifyContent:"space-between",gap:6}}>
-                            <span style={{color:"#e2e8f0",fontSize:12}}>{eq?"● ":"○ "}{m.name}</span>
-                            <span style={{color:"#8a9a7a",fontSize:10}}>{MASTERY[tier].name}</span>
-                          </div>
-                          <div style={{color:"#8a9a7a",fontSize:10}}><span style={{color:col}}>{m.type}</span> · {m.kind?m.kind[0].toUpperCase()+m.kind.slice(1):(m.power>0?"Physical/Elemental":"Support")}{m.power>0?` · Power ${m.power}`:""}{m.acc<1?` · ${Math.round(m.acc*100)}%`:""}{fx?` · ${fx}`:m.effect?` · ${m.effect.replace("_"," ")}`:""}</div>
-                        </button>); })}
-                    </div>
-                    {ids.length>1&&<div style={{color:"#4a5a3a",fontSize:10,marginTop:3}}>{uiState.atSwap?"Tap a move to bring it or leave it (up to 4).":"Change which moves it brings at home, your door, a spring or the river shoals."}</div>}
-                  </div>); })()}
                 </>}
+                {cardTab==="moves"&&(()=>{ const ids=c.learned?.length?c.learned:(c.moves||[]).map(m=>m.id), onIds=(c.moves||[]).map(m=>m.id), on=new Set(onIds);
+                  const rest=ids.filter(id=>!on.has(id)), here=uiState.atSwap;
+                  const ls=SPECIES[c.species]?.learnset, next=ls?.find(e=>!ids.includes(e.move));
+                  const row=(id,eq)=>{ const m=moveById(id); if(!m) return null; const tier=masteryTier(c.mastery?.[id]||0), fx=moveEffectText(m), col=TYPE_COLORS[m.type]||"#aaa";
+                    const can=here&&(eq?on.size>1:on.size<4);
+                    return (
+                    <div key={id} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 8px",borderRadius:8,background:eq?col+"1f":"#0c110c",border:`1.5px solid ${eq?col+"88":"#1c2418"}`}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{display:"flex",justifyContent:"space-between",gap:6}}>
+                          <span style={{color:"#e2e8f0",fontSize:13}}>{m.name}</span>
+                          <span style={{color:"#8a9a7a",fontSize:10}}>{MASTERY[tier].name}</span>
+                        </div>
+                        <div style={{color:"#8a9a7a",fontSize:10,lineHeight:1.4}}><span style={{color:col}}>{m.type}</span> · {m.kind?m.kind[0].toUpperCase()+m.kind.slice(1):(m.power>0?(m.type==="normal"?"Physical":"Elemental"):"Support")}{m.power>0?` · Power ${m.power}${m.hits>1?" ×"+m.hits:""}`:""}{m.acc<1?` · ${Math.round(m.acc*100)}%`:""}{fx?` · ${fx}`:m.effect?` · ${m.effect.replace("_"," ")}`:""}</div>
+                      </div>
+                      {(can||!eq)&&ids.length>1&&<button onClick={()=>can&&toggleMove(c.id,id)} disabled={!can}
+                        style={{...btnBase,touchAction:"manipulation",flexShrink:0,height:30,padding:"0 10px",fontSize:11,opacity:can?1:0.4}}>{eq?"Leave":"Bring"}</button>}
+                    </div>); };
+                  return (<>
+                    <div>
+                      <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Brings into battle · {on.size} of 4</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                        {onIds.map(id=>row(id,true))}
+                        {Array.from({length:Math.max(0,4-on.size)}).map((_,i)=><div key={"empty"+i} style={{border:"1.5px dashed #1c2418",borderRadius:8,padding:"8px",color:"#3a4a2e",fontSize:11,textAlign:"center"}}>{rest.length?"Empty slot":"Empty slot · learns more moves as it levels up"}</div>)}
+                      </div>
+                    </div>
+                    {rest.length>0&&<div>
+                      <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Also knows</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>{rest.map(id=>row(id,false))}</div>
+                    </div>}
+                    <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.45}}>
+                      {here?(on.size>=4&&rest.length?"Leave a move to make room for another.":"Choose up to 4 moves to bring."):"You can change moves at home, your door, a spring or the river shoals."}
+                      {next&&<div style={{marginTop:4}}>Next: <span style={{color:"#c8e6a0"}}>{moveById(next.move)?.name}</span> at level {next.lv}{next.stage?` once it's ${next.stage==="adult"?"an adult":next.stage==="elder"?"an elder":"an adolescent"}`:""}.</div>}
+                    </div>
+                  </>); })()}
                 {cardTab==="genes"&&<>
                 <div>
                   <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Genes</div>
