@@ -23,6 +23,7 @@ export function stepMortality(creatures, ms, { hungerCounted = false } = {}) {
     if (!hungerCounted) c.starving = c.fullness <= 0.001 ? (c.starving || 0) + ms : 0;
     if (c.starving > 0) c.hp = Math.min(c.hp, Math.max(0.02, 1 - c.starving / fastMs(c)));
     if (c.starving >= fastMs(c)) { died.push({ c, cause: "hunger" }); continue; }
+    if (c.diedOfPoison) { died.push({ c, cause: "poison" }); continue; }
     const x = c.age / c.maxAge;
     if (x >= OLD_AGE_FROM) {
       if (c.fate == null) c.fate = -Math.log(Math.random() || 1e-9);
@@ -41,7 +42,7 @@ const sizeOf = c => {
   const s = (SPECIES[c.species]?.sizeMul || 1) * (c.dna.size || 1) * lifeStage(c).scale;
   return s < 0.7 ? "small" : s < 1.05 ? "medium" : "large";
 };
-export const causeText = cause => cause === "hunger" ? "hunger" : cause === "released" ? "released" : "old age";
+export const causeText = cause => cause === "hunger" ? "hunger" : cause === "released" ? "released" : cause === "poison" ? "poison" : "old age";
 
 // Take the dead out of the living: remember them, leave remains (at home), free their mates,
 // and take them off the vine, out of the bag and out of your arms.

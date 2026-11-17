@@ -2,14 +2,14 @@ import { newId } from "../engine/ids.js";
 import { randomDNA } from "./dna.js";
 import { SPECIES, lifeStage } from "./species.jsx";
 import { HOUR, DAY, habitatFit, conditionOf, pickName } from "./resident.js";
-import { deriveMoves } from "../battle/moves.js";
+import { deriveMoves, initLearnset, hasLearnset } from "../battle/moves.js";
 
 // ─── Genes in two copies ──────────────────────────────────────────────────────
 // Every gene comes in two copies, one from each parent. At birth one copy is
 // picked at random to show; the other stays hidden but can be passed on, so a
 // hidden copy can come back in a grandchild. Each copy passed on has a small
 // chance to mutate a little.
-export const GENE_KEYS = ["hue", "saturation", "size", "speed", "lifespan", "fertility", "strength", "aggression", "metabolism", "reproRate", "xpRate", "hpRange", "elemental", "resistance"];
+export const GENE_KEYS = ["hue", "saturation", "size", "speed", "lifespan", "fertility", "strength", "aggression", "metabolism", "reproRate", "xpRate", "hpRange", "elemental", "resistance", "stamina"];
 const MUTATE_CHANCE = 0.05;
 function mutate(key, v) {
   if (Math.random() >= MUTATE_CHANCE) return v;
@@ -96,7 +96,7 @@ export function hatchEgg(egg, names = []) {
   const shown = {}, dna = {};
   for (const k of GENE_KEYS) { shown[k] = Math.random() < 0.5 ? 0 : 1; dna[k] = egg.genome[k][shown[k]]; }
   const moves = egg.eggMoves?.length ? egg.eggMoves : deriveMoves(dna, sp.types);
-  return {
+  const baby = {
     id: egg.id, type: "creature", species: egg.species, name: pickName(names), sex: Math.random() < 0.5 ? "F" : "M",
     col: egg.col, row: egg.row, dna, genome: egg.genome, shown, moves,
     motherId: egg.motherId, fatherId: egg.fatherId, generation: egg.generation, bornAt: null,
@@ -104,6 +104,8 @@ export function hatchEgg(egg, names = []) {
     fullness: 0.7, hp: 1, habitat: 1, level: 1, xp: 0,
     dcol: 0, drow: 0, wanderTimer: 0, state: "wander", targetId: null, biteTimer: 0, petAt: 0,
   };
+  // Species with a move list: its level-1 moves, plus the move it got from each parent (it can know more than 4)
+  return hasLearnset(baby) ? initLearnset(baby, (egg.eggMoves || []).map(m => m.id)) : baby;
 }
 // How well the ground suits an egg: 1 develops normally, lower is slower, 0 doesn't develop
 export function eggClimate(egg, cell) {

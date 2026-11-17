@@ -1,4 +1,5 @@
-import { deriveMoves } from "./moves.js";
+import { deriveMoves, staminaCost, isLight, masteryTier } from "./moves.js";
+import { STATUS, addStatus, tickTurn, level, has, toBattle, maxStamina, FEAR_CHANCE, BLIND_ACC, STAMINA_TIRING, STAMINA_BACK, statusText } from "./statuses.js";
 import { lifeStage, speciesOf } from "../creatures/species.jsx";
 
 // ─── Type chart (from the design doc's 13-type table, attacking side) ─────────
@@ -23,7 +24,7 @@ export const TYPE_CHART = {
 // Move types still use the old names until moves are renamed in stage 8
 const MOVE_TYPE = { normal:"Normal", fire:"Fire", water:"Water", grass:"Plant", electric:"Electric", ice:"Ice",
   poison:"Poison", rock:"Earth", ground:"Earth", dark:"Spirit", ghost:"Spirit", bug:"Bug", flying:"Air", steel:"Metal" };
-export const moveType = m => MOVE_TYPE[m?.type] || "Normal";
+export const moveType = m => MOVE_TYPE[m?.type] || (TYPE_CHART[m?.type] ? m.type : "Normal");
 export function typeMultiplier(atkType, defTypes) {
   const row = TYPE_CHART[atkType]; if (!row) return 1;
   return (defTypes || []).reduce((k, t) => k * (row.none.includes(t) ? 0 : row.strong.includes(t) ? 2 : row.weak.includes(t) ? 0.5 : 1), 1);
@@ -57,79 +58,181 @@ export function habitatAdvantage(c, biome) {
 }
 export function battleStats(c, biome = null) {
   const lv = c.level || 1, base = speciesOf(c).base || {};
-  const st = lifeStage(c).id, k = (STAGE_POWER[st] || 1) * conditionFactor(c) * habitatAdvantage(c, biome), old = st === "elder" ? 0.85 : 1;
-  const b = key => base[key] ?? 1;
+  const st = lifeStage(c).id, k = (STAGE_POWER[st] || 1) * conditionFactor(c) * habitatAdvantage(c, biome);
+  // Elders: each species sets how its stats change (default: Attack, Elemental and Speed −15%)
+  const eld = speciesOf(c).elder || { atk: 0.85, ele: 0.85, spd: 0.85 };
+  const b = key => (base[key] ?? 1) * (st === "elder" ? eld[key] ?? 1 : 1);
   return {
     maxHp: Math.max(6, Math.floor((18 + lv * 8) * b("hp") * g(c, "hpRange") * (0.5 + 0.5 * g(c, "size")) * k)),
-    atk: Math.max(1, Math.floor((5 + lv * 3) * b("atk") * g(c, "strength") * k * old)),
+    atk: Math.max(1, Math.floor((5 + lv * 3) * b("atk") * g(c, "strength") * k)),
     def: Math.max(1, Math.floor((4 + lv * 2.5) * b("def") * g(c, "size") * k)),
-    ele: Math.max(1, Math.floor((5 + lv * 3) * b("ele") * g(c, "elemental") * k * old)),
+    ele: Math.max(1, Math.floor((5 + lv * 3) * b("ele") * g(c, "elemental") * k)),
     res: Math.max(1, Math.floor((4 + lv * 2.5) * b("res") * g(c, "resistance") * k)),
-    spd: Math.max(1, Math.floor((4 + lv * 2.5) * b("spd") * g(c, "speed") * k * old)),
+    spd: Math.max(1, Math.floor((4 + lv * 2.5) * b("spd") * g(c, "speed") * k)),
   };
 }
-export function makeBattler(c, biome = null) {
-  const lv=c.level||1, s=battleStats(c, biome);
-  // If creature already has battleHp from a previous swap, use it.
-  // Otherwise derive from world hp (0-1 float).
-  const battleHp = c.battleHp!=null ? Math.min(c.battleHp, s.maxHp) : Math.floor((c.hp||1)*s.maxHp);
-  return { ...c, level:lv, moves:c.moves||deriveMoves(c.dna), types:speciesOf(c).types||["Normal"],
+// A creature in battle. `carry` is what it had when it was last switched out this battle
+// (stat stages, statuses, stamina stay with it on the bench).
+export function makeBattler(c, biome = null, carry = null) {
+  const lv=c.level||1, s=battleStats(c, biome), sp=speciesOf(c), maxSta=maxStamina(c, sp);
+  const battleHp = c.battleHp!=null ? Math.min(c.battleHp, s.maxHp) : Math.floor((c.hp??1)*s.maxHp);
+  return { ...c, level:lv, moves:c.moves||deriveMoves(c.dna), types:sp.types||["Normal"],
+    label: c.wild ? `The wild ${sp.name}` : (c.name || sp.name),
     ...s, battleHp, habitatBonus: habitatAdvantage(c, biome) > 1,
-    status:null, statMods:{atk:0,def:0,spd:0,ele:0,res:0} };
+    status: carry?.status ?? null,
+    statMods: carry?.statMods ? { ...carry.statMods } : { atk:0, def:0, spd:0, ele:0, res:0 },
+    fx: carry?.fx ? [...carry.fx] : toBattle(c.statuses),
+    maxSta, stamina: carry?.stamina ?? Math.round((c.stamina ?? 1) * maxSta), fatigued: carry?.fatigued ?? !!c.fatigued,
+    kdGuard: carry?.kdGuard ?? 0, attacked: false };
 }
+// What a battler takes to the bench (and back)
+export const benchState = b => ({ statMods: b.statMods, fx: b.fx, stamina: b.stamina, fatigued: b.fatigued, kdGuard: b.kdGuard, status: b.status });
+const effSpd = b => applyStatMod(b.spd, b.statMods?.spd || 0) * (b.fatigued ? 0.8 : 1);
 // Who acts first this turn: the faster one, with a little luck
 export function goesFirst(a, b) {
-  const sa = applyStatMod(a.spd, a.statMods?.spd || 0), sb = applyStatMod(b.spd, b.statMods?.spd || 0);
-  return sa * (0.9 + Math.random() * 0.2) >= sb;
+  return effSpd(a) * (0.9 + Math.random() * 0.2) >= effSpd(b);
 }
-// Until moves are redone (stage 9), Normal moves are physical and every other type is elemental
-export const isPhysical = m => moveType(m) === "Normal";
-export function applyStatMod(base,mod) {
-  const t=[0.25,0.28,0.33,0.4,0.5,0.66,1,1.5,2,2.5,3,3.5,4];
-  return Math.floor(base*t[mod+6]);
+// Physical moves use Attack against Defense; elemental ones Elemental against Resistance.
+// Moves from before stage 9 have no kind: Normal ones are physical, the rest elemental.
+export const isPhysical = m => m.kind ? m.kind === "physical" : moveType(m) === "Normal";
+// Stat stages, ±4: each step up is +25% (×2 at +4); each step down divides the same way (×0.5 at −4)
+export const STAGE_CAP = 4;
+export function applyStatMod(base, mod) {
+  const n = Math.max(-STAGE_CAP, Math.min(STAGE_CAP, mod || 0));
+  return Math.floor(base * (n >= 0 ? (4 + n) / 4 : 4 / (4 - n)));
 }
+const STAT_NAME = { atk:"Attack", def:"Defense", spd:"Speed", ele:"Elemental", res:"Resistance" };
+function changeStage(b, stat, stages, msgs) {
+  const cur = b.statMods[stat] || 0, next = Math.max(-STAGE_CAP, Math.min(STAGE_CAP, cur + stages));
+  if (next === cur) { msgs.push(`${b.label}'s ${STAT_NAME[stat]} won't go any ${stages > 0 ? "higher" : "lower"}!`); return; }
+  b.statMods[stat] = next;
+  msgs.push(`${b.label}'s ${STAT_NAME[stat]} ${stages > 0 ? "rose" : "fell"}${Math.abs(stages) > 1 ? " sharply" : ""}!`);
+}
+const STATUS_ON = { poison:"is poisoned", fear:"is afraid", blind:"can't see well", knocked:"is knocked down", festering:"has a festering wound", toxichide:"is coated in toxic slime" };
+function giveStatus(b, id, turns, msgs) {
+  if (id === "knocked" && (b.kdGuard > 0 || has(b.fx, "knocked"))) return;
+  const r = addStatus(b.fx, id, turns);
+  if (!r.added) return;
+  b.fx = r.fx;
+  msgs.push(`${b.label} ${STATUS_ON[id] || "is affected"}${r.level > 1 ? ` (${statusText(id, r.level).toLowerCase()})` : ""}!`);
+}
+// Spend stamina, with a word when it's running low or gone
+function spendStamina(b, cost, msgs) {
+  if (!cost) return;
+  const before = b.stamina / b.maxSta;
+  b.stamina = Math.max(0, b.stamina - cost);
+  const after = b.stamina / b.maxSta;
+  if (b.stamina <= 0 && !b.fatigued) { b.fatigued = true; msgs.push(`${b.label} is exhausted!`); }
+  else if (before > STAMINA_TIRING && after <= STAMINA_TIRING) msgs.push(`${b.label} is tiring.`);
+}
+export const CRIT_CHANCE = 0.05, CRIT_MULT = 1.5;
+
 export function executeBattleMove(atk,def,move) {
   const msgs=[];
-  let ac={...atk,statMods:{...atk.statMods}}, dc={...def,statMods:{...def.statMods}};
-  if (atk.status==="paralyze"&&Math.random()<0.25){msgs.push("Paralyzed! Can't move!");return{newAttacker:ac,newDefender:dc,msgs};}
-  if (atk.status==="freeze"&&Math.random()<0.5){msgs.push("Frozen solid!");return{newAttacker:ac,newDefender:dc,msgs};}
-  msgs.push("Used "+move.name+"!");
-  if (Math.random()>move.acc){msgs.push("Missed!");return{newAttacker:ac,newDefender:dc,msgs};}
+  let ac={...atk,statMods:{...atk.statMods},fx:[...(atk.fx||[])]}, dc={...def,statMods:{...def.statMods},fx:[...(def.fx||[])]};
+  const done=()=>({newAttacker:ac,newDefender:dc,msgs});
+  // Losing the turn, in order: knocked down, paralysis, frozen (older moves), fear
+  if (has(ac.fx,"knocked")) { ac.fx=ac.fx.filter(f=>f.id!=="knocked"); ac.kdGuard=2; msgs.push(`${ac.label} is getting back up!`); return done(); }
+  if (ac.status==="paralyze"&&Math.random()<0.25){msgs.push("Paralyzed! Can't move!");return done();}
+  if (ac.status==="freeze"&&Math.random()<0.5){msgs.push("Frozen solid!");return done();}
+  const fearLv=level(ac.fx,"fear");
+  if (fearLv && Math.random()<FEAR_CHANCE[Math.min(3,fearLv)]) { msgs.push(`${ac.label} hesitates in fear!`); return done(); }
+  // A worn-out creature can only manage light moves
+  if (ac.fatigued && !isLight(move)) { const light=[...(ac.moves||[])].filter(isLight).sort((a,b)=>staminaCost(a)-staminaCost(b))[0]; if (light) move=light; }
+  msgs.push(`${ac.label} used ${move.name}!`);
+  const phys=isPhysical(move), tier=masteryTier(ac.mastery?.[move.id]||0);
+  spendStamina(ac, staminaCost(move), msgs);
+  if (move.power>0) ac.attacked=true;
+  const msgsBeforeHit=msgs.length;
+  let acc=Math.min(1,move.acc*(1+0.1*tier));
+  if (phys) acc*=BLIND_ACC[Math.min(3,level(ac.fx,"blind"))];
+  if (Math.random()>acc){msgs.push("Missed!");return done();}
   // A much faster target sometimes dodges (up to 10%)
   if (move.power>0) {
-    const as=applyStatMod(ac.spd,ac.statMods.spd||0), ds=applyStatMod(dc.spd,dc.statMods.spd||0);
-    if (Math.random() < Math.min(0.1, Math.max(0, (ds - as) / (ds + as) * 0.3))) { msgs.push("It dodged!"); return {newAttacker:ac,newDefender:dc,msgs}; }
+    const as=effSpd(ac), ds=effSpd(dc);
+    if (Math.random() < Math.min(0.1, Math.max(0, (ds - as) / (ds + as) * 0.3))) { msgs.push("It dodged!"); return done(); }
   }
-  if (move.effect==="heal"){const h=Math.floor(ac.maxHp*0.4);ac.battleHp=Math.min(ac.maxHp,ac.battleHp+h);msgs.push("Restored "+h+" HP!");return{newAttacker:ac,newDefender:dc,msgs};}
-  if (move.effect==="raise_def"){ac.statMods.def=Math.min(3,ac.statMods.def+1);msgs.push("Defense rose!");return{newAttacker:ac,newDefender:dc,msgs};}
-  if (move.effect==="lower_atk"){dc.statMods.atk=Math.max(-3,dc.statMods.atk-1);msgs.push("Foe's Attack fell!");}
-  if (move.effect==="lower_def"){dc.statMods.def=Math.max(-3,dc.statMods.def-1);msgs.push("Foe's Defense fell!");}
-  if (move.effect==="lower_spd"){dc.statMods.spd=Math.max(-3,dc.statMods.spd-1);msgs.push("Foe's Speed fell!");}
+  // Older moves' effects
+  if (move.effect==="heal"){ if(has(ac.fx,"festering")){msgs.push(`${ac.label}'s festering wound won't heal!`);return done();} const h=Math.floor(ac.maxHp*0.4);ac.battleHp=Math.min(ac.maxHp,ac.battleHp+h);msgs.push("Restored "+h+" HP!");return done();}
+  if (move.effect==="raise_def"){changeStage(ac,"def",1,msgs);return done();}
+  if (move.effect==="lower_atk") changeStage(dc,"atk",-1,msgs);
+  if (move.effect==="lower_def") changeStage(dc,"def",-1,msgs);
+  if (move.effect==="lower_spd") changeStage(dc,"spd",-1,msgs);
   if (move.power>0) {
     const mt=moveType(move), k=typeMultiplier(mt,dc.types);
-    if (k===0) { msgs.push("It has no effect…"); return {newAttacker:ac,newDefender:dc,msgs}; }
+    if (k===0) { msgs.push("It has no effect…"); return done(); }
     const stab=(ac.types||[]).includes(mt)?SAME_TYPE_BONUS:1;
-    const phys=isPhysical(move);
-    const ea=phys?applyStatMod(ac.atk,ac.statMods.atk):applyStatMod(ac.ele??ac.atk,ac.statMods.ele||0);
-    const ed=phys?applyStatMod(dc.def,dc.statMods.def):applyStatMod(dc.res??dc.def,dc.statMods.res||0);
-    const dmg=Math.max(1,Math.floor((ea/ed)*move.power*0.18*k*stab*(0.85+Math.random()*0.15)));
+    const crit=Math.random() < (move.crit ?? CRIT_CHANCE) * (has(dc.fx,"knocked")?2:1);
+    // A critical hit ignores the target's boosts and the attacker's own drops
+    const aKey=phys?"atk":"ele", dKey=phys?"def":"res";
+    let aMod=ac.statMods[aKey]||0, dMod=dc.statMods[dKey]||0;
+    if (crit) { aMod=Math.max(0,aMod); dMod=Math.min(0,dMod); }
+    let ea=applyStatMod(phys?ac.atk:(ac.ele??ac.atk),aMod), ed=applyStatMod(phys?dc.def:(dc.res??dc.def),dMod);
+    if (ac.fatigued) ea*=0.8;
+    if (!phys&&fearLv) ea*=0.75;
+    const power=move.power*(1+0.1*tier);
+    let dmg=(ea/Math.max(1,ed))*power*0.18*k*stab*(0.85+Math.random()*0.15);
+    if (crit) dmg*=CRIT_MULT;
+    if (has(dc.fx,"knocked")) dmg*=1.25;
+    dmg=Math.max(1,Math.floor(dmg));
     dc.battleHp=Math.max(0,dc.battleHp-dmg); msgs.push("Hit for "+dmg+"!");
+    if (crit) msgs.push("A critical hit!");
     if (k>1) msgs.push(k>=4?"It's devastating!":"It's super effective!");
     else if (k<1) msgs.push("It's not very effective…");
+    // Toxic Hide: hitting it with your body can poison you
+    if (phys && has(dc.fx,"toxichide") && Math.random()<0.3) giveStatus(ac,"poison",6,msgs);
+  }
+  // This move's stat changes and statuses
+  for (const st of move.stat||[]) if (Math.random() < (st.chance ?? 1)) changeStage(st.self?ac:dc, st.stat, st.stages, msgs);
+  for (const st of move.status||[]) {
+    const target=st.self?ac:dc;
+    if (!st.self && target.battleHp<=0) continue;
+    if (Math.random() < st.chance) giveStatus(target, st.id, st.turns, msgs);
+  }
+  if (move.special==="clearOne") {
+    const bad=(ac.fx||[]).find(f=>!STATUS[f.id]?.self);
+    if (bad) { ac.fx=ac.fx.filter(f=>f.id!==bad.id); msgs.push(`${ac.label} shakes off ${STATUS[bad.id].name.toLowerCase()}!`); }
+    else if (ac.status) { msgs.push(`${ac.label} shakes off its ${ac.status}!`); ac.status=null; }
   }
   if (move.effect==="burn"&&!dc.status&&Math.random()<0.3){dc.status="burn";msgs.push("Burned!");}
-  if (move.effect==="poison"&&!dc.status&&Math.random()<0.3){dc.status="poison";msgs.push("Poisoned!");}
+  if (move.effect==="poison"&&Math.random()<0.3) giveStatus(dc,"poison",6,msgs);
   if (move.effect==="paralyze"&&!dc.status&&Math.random()<0.3){dc.status="paralyze";msgs.push("Paralyzed!");}
   if (move.effect==="freeze"&&!dc.status&&Math.random()<0.2){dc.status="freeze";msgs.push("Frozen!");}
-  return {newAttacker:ac,newDefender:dc,msgs};
+  if (msgs.length===msgsBeforeHit && move.power===0) msgs.push("Nothing happened.");
+  return done();
 }
-export function applyEndOfTurn(b) {
-  if (!b.status||b.status==="paralyze"||b.status==="freeze") return {b,msg:null};
-  const dmg=Math.max(1,Math.floor(b.maxHp*0.0625));
-  return {b:{...b,battleHp:Math.max(0,b.battleHp-dmg)},msg:(b.status==="burn"?"🔥":"☠️")+" "+dmg+" from "+b.status};
+// End of a round, for each creature in the fight: poison hurts, every status counts down a turn,
+// and a creature that didn't attack gets a little stamina back
+const ENDED = { poison:"is no longer poisoned", fear:"is no longer afraid", blind:"can see again", festering:"'s wound is closing", toxichide:"'s toxic coat wears off" };
+export function endOfRound(b0) {
+  const b={...b0,fx:[...(b0.fx||[])]}, msgs=[];
+  if (b.battleHp<=0) return {b,msgs};
+  const pz=level(b.fx,"poison");
+  if (pz) { const d=Math.max(1,Math.floor(b.maxHp*0.02*pz)); b.battleHp=Math.max(0,b.battleHp-d); msgs.push(`☠️ ${b.label} takes ${d} from poison`); }
+  if (b.status==="burn"||b.status==="poison") { const d=Math.max(1,Math.floor(b.maxHp*0.0625)); b.battleHp=Math.max(0,b.battleHp-d); msgs.push((b.status==="burn"?"🔥":"☠️")+" "+d+" from "+b.status); }
+  // Knocked down lasts until it next tries to act
+  const kd=b.fx.filter(f=>f.id==="knocked"), t=tickTurn(b.fx.filter(f=>f.id!=="knocked"));
+  b.fx=[...t.fx,...kd];
+  for (const id of t.ended) if (ENDED[id]) msgs.push(`${b.label}${ENDED[id].startsWith("'")?"":" "}${ENDED[id]}.`);
+  if (b.kdGuard>0) b.kdGuard--;
+  if (!b.attacked) {
+    b.stamina=Math.min(b.maxSta,b.stamina+Math.round(b.maxSta*0.05));
+    if (b.fatigued && b.stamina/b.maxSta>=STAMINA_BACK) { b.fatigued=false; msgs.push(`${b.label} got its second wind.`); }
+  }
+  b.attacked=false;
+  return {b,msgs};
+}
+// Kept for anything still calling it: same as the end of a round
+export function applyEndOfTurn(b) { const r=endOfRound(b); return {b:r.b,msg:r.msgs.join(" · ")||null}; }
+// Moves it can use right now (a Fatigued creature only manages light ones)
+export function usableMoves(b) {
+  const mvs=b.moves||[];
+  if (!b.fatigued) return mvs;
+  const light=mvs.filter(isLight);
+  return light.length?light:[...mvs].sort((a,c)=>staminaCost(a)-staminaCost(c)).slice(0,1);
 }
 export function aiPickMove(enemy,player) {
-  const mvs=enemy.moves;
+  const mvs=usableMoves(enemy);
   if (enemy.battleHp<enemy.maxHp*0.3){const h=mvs.find(m=>m.effect==="heal");if(h)return h;}
   return [...mvs].sort((a,b)=>b.power-a.power)[0]||mvs[0];
 }

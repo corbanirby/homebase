@@ -6,6 +6,7 @@ import { makeWild, DAY, STARVE_MS, HOUR } from "../creatures/resident.js";
 import { movePlayer } from "./movement.js";
 import { incubateCarried, hatchEgg } from "../creatures/breeding.js";
 import { PLANT_SPECIES, podPlantId } from "../plants/plants.js";
+import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
 
 // ─── Life in the shared world ─────────────────────────────────────────────────
 // Each 16×16 area keeps a number for each species, set by how much of the land
@@ -75,12 +76,14 @@ export const VINE_HUNGER = 0.25; // creatures you carry are held in a light hibe
 export const BAG_AGING = 0.5;
 export function ageCarried(c, ms, inBag = false) {
   if (c.isEgg) { const e = incubateCarried(c, ms); return e.incubation >= 1 ? hatchEgg(e) : e; }
-  if (inBag) { const age = c.age + ms * BAG_AGING; return { ...c, age, stageId: lifeStage({ age, maxAge: c.maxAge }).id }; }
+  // Statuses and stamina run on the same clock: half speed asleep in the bag, normal on the vine
+  if (inBag) { const age = c.age + ms * BAG_AGING; return restoreStamina(tickStatuses({ ...c, age, stageId: lifeStage({ age, maxAge: c.maxAge }).id }, ms, 0.5), ms, 0.5); }
   const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge });
   const rate = (c.dna.metabolism ?? 1) / STARVE_MS * VINE_HUNGER, empty = rate > 0 ? c.fullness / rate : Infinity;
   const fullness = Math.max(0, c.fullness - ms * rate);
   const starving = ms > empty ? (c.fullness > 0 ? ms - empty : (c.starving || 0) + ms) : 0;
-  return { ...c, age, stageId: st.id, fullness, starving, hp: c.hp < 1 && c.hp > 0.05 ? Math.min(1, c.hp + ms / ((inBag ? 24 : 12) * HOUR)) : c.hp }; // vine heals fully in ~12 h, asleep in the bag ~24 h
+  const heal = c.hp < 1 && c.hp > 0.05 && canHeal(c); // vine heals fully in ~12 h (not while festering)
+  return restoreStamina(tickStatuses({ ...c, age, stageId: st.id, fullness, starving, hp: heal ? Math.min(1, c.hp + ms / (12 * HOUR)) : c.hp }, ms, 1), ms, 1);
 }
 
 function randomCoverNear(map, col, row, rad) {

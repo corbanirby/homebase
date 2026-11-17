@@ -8,7 +8,8 @@ export function randomDNA() {
     xpRate:0.5+Math.random()*1.0,    // 0.5–1.5: low=levels fast, high=levels slow
     hpRange:0.5+Math.random()*1.0,   // 0.5–1.5: low=fragile/small hp pool, high=tanky
     elemental:0.6+Math.random()*0.8, // 0.6–1.4: power of type moves
-    resistance:0.6+Math.random()*0.8,// 0.6–1.4: holding up against type moves
+    resistance:0.6+Math.random()*0.8, // 0.6–1.4: holding up against type moves
+    stamina:0.6+Math.random()*0.8,    // 0.6–1.4: how long it lasts before tiring (about ±10%)
   };
 }
 export function crossDNA(a,b) {

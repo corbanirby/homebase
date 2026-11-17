@@ -4,6 +4,7 @@ import { SPECIES, lifeStage } from "../creatures/species.jsx";
 import { HOUR, STARVE_MS, HUNGRY_AT, WEAK_AT, habitatFit } from "../creatures/resident.js";
 import { stepBreeding, nestFinder } from "../creatures/breeding.js";
 import { stepMortality, applyDeaths, stepRemains } from "../creatures/death.js";
+import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
 
 // ─── Catch-up ─────────────────────────────────────────────────────────────────
 // Runs when you come back after the game was closed or hidden. Instead of
@@ -34,7 +35,9 @@ export function catchUp(state, land, ms) {
       const st = lifeStage(c);
       if (st.id !== c.stageId) { c.stageId = st.id; grew.push(`${c.name} grew into ${st.id === "baby" ? "a" : "an"} ${st.label.toLowerCase()}`); }
       c.fullness = Math.max(0, c.fullness - slice / STARVE_MS * (c.dna.metabolism ?? 1));
-      if (c.hp < 1) c.hp = Math.min(1, c.hp + slice / (3 * HOUR));
+      if (c.hp < 1 && canHeal(c)) c.hp = Math.min(1, c.hp + slice / (3 * HOUR));
+      if (c.statuses?.length) Object.assign(c, tickStatuses(c, slice, 2, { home: true }));
+      if ((c.stamina ?? 1) < 1 || c.fatigued) Object.assign(c, restoreStamina(c, slice, 2));
       if (c.fullness < HUNGRY_AT) {
         // Graze the nearest plant it eats; it ends up standing beside it
         const eats = SPECIES[c.species]?.eats || [];
@@ -43,7 +46,7 @@ export function catchUp(state, land, ms) {
         if (best >= 0) {
           const p = plants[best], take = Math.min(p.energy - 0.05, (0.97 - c.fullness) / GRAZE_YIELD);
           if (take > 0) {
-            c.fullness += take * GRAZE_YIELD; c.hp = Math.min(1, c.hp + take * GRAZE_YIELD * 0.5); meals++;
+            c.fullness += take * GRAZE_YIELD; if (canHeal(c)) c.hp = Math.min(1, c.hp + take * GRAZE_YIELD * 0.5); meals++;
             plants = plants.map((q, i) => i === best ? { ...q, energy: q.energy - take } : q);
             c.col = p.col + (Math.random() - 0.5) * 0.6; c.row = p.row + 0.3; c.state = "wander"; c.targetId = null;
           }

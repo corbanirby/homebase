@@ -1,6 +1,6 @@
 import { newId } from "../engine/ids.js";
 import { randomDNA } from "./dna.js";
-import { deriveMoves, learnMoveAtLevel } from "../battle/moves.js";
+import { deriveMoves, levelUpMoves, initLearnset, hasLearnset } from "../battle/moves.js";
 import { XP_PER_LEVEL } from "../config.js";
 import { SPECIES, STAGES, lifeStage } from "./species.jsx";
 
@@ -28,12 +28,13 @@ export function makeResident({ col, row, sex, name, dna = null, species = "ramta
   // Two copies of every gene: the one that shows, and a hidden one it can pass on
   const hidden = randomDNA(), genome = {}, shown = {};
   for (const k of Object.keys(dna)) { genome[k] = [dna[k], hidden[k] ?? dna[k]]; shown[k] = 0; }
-  return {
+  const c = {
     id: newId(), type: "creature", species, name, sex, col, row, dna, genome, shown, generation: 1, moves: deriveMoves(dna, sp.types),
     bornAt: clock, age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",
     fullness: 0.85 + Math.random() * 0.15, hp: 1, habitat: 1, level: 1, xp: 0,
     dcol: 0, drow: 0, wanderTimer: 0, state: "wander", targetId: null, biteTimer: 0, petAt: 0,
   };
+  return hasLearnset(c) ? initLearnset(c) : c;
 }
 
 // How well the patch it's on suits it, 0 to 1
@@ -93,11 +94,8 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
 export const STARTER_LEVEL = 5;
 export function raiseToLevel(c, level) {
   if ((c.level || 1) >= level) return c;
-  let moves = c.moves || [];
-  for (let l = (c.level || 1) + 1; l <= level; l++) {
-    const m = learnMoveAtLevel(c.dna, l, moves);
-    if (m) moves = moves.length < 4 ? [...moves, m] : [moves[0], ...moves.slice(2), m];
-  }
   const need = Math.floor(XP_PER_LEVEL * (c.dna.xpRate ?? 1));
-  return { ...c, level, xp: Math.max(c.xp || 0, (level - 1) * need), moves };
+  if (hasLearnset(c)) return initLearnset({ ...c, level, xp: Math.max(c.xp || 0, (level - 1) * need) });
+  const up = levelUpMoves(c, level);
+  return { ...c, level, xp: Math.max(c.xp || 0, (level - 1) * need), moves: up.moves };
 }

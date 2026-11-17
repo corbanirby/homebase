@@ -58,3 +58,52 @@ export function learnMoveAtLevel(dna, level, knownMoves) {
   const top = scored.slice(0,Math.min(3,scored.length));
   return top[Math.floor(Math.random()*top.length)].m;
 }
+
+// ─── Stage 9: learnsets, bring 4, mastery ─────────────────────────────────────
+import { MOVES } from "./movelist.js";
+import { SPECIES, lifeStage } from "../creatures/species.jsx";
+Object.assign(TYPE_COLORS, {
+  Normal:"#a8a878", Fire:"#f08030", Water:"#6890f0", Plant:"#78c850", Electric:"#f8d030", Ice:"#98d8d8",
+  Poison:"#b05ad0", Earth:"#b8a038", Air:"#a890f0", Bug:"#a8b820", Spirit:"#8a7aa8", Metal:"#b8b8d0", Fungus:"#c08a6a",
+});
+export const moveById = id => MOVES[id] || MOVE_POOL.find(m => m.id === id) || null;
+// Stamina a move costs (moves from before stage 9 cost by their power)
+export const staminaCost = m => m.stamina ?? (m.power > 0 ? Math.round(m.power / 8) : 5);
+export const isLight = m => staminaCost(m) <= 5;
+// Mastery: Novice, Practiced, Mastered — each step about 10% more power and accuracy
+export const MASTERY = [{ name: "Novice", at: 0 }, { name: "Practiced", at: 15 }, { name: "Mastered", at: 50 }];
+export const masteryTier = uses => (uses >= MASTERY[2].at ? 2 : uses >= MASTERY[1].at ? 1 : 0);
+
+const STAGE_ORDER = { baby: 0, adolescent: 1, adult: 2, elder: 3 };
+export const hasLearnset = c => !!SPECIES[c.species]?.learnset;
+// The species' moves a creature has earned: its level is high enough and it has reached the stage
+export function earnedMoves(c, lv = c.level || 1) {
+  const ls = SPECIES[c.species]?.learnset || [], st = STAGE_ORDER[lifeStage(c).id] ?? 0;
+  return ls.filter(e => e.lv <= lv && (STAGE_ORDER[e.stage] ?? 0) <= st).map(e => e.move);
+}
+// Set a creature up on its species' list (new creatures, and older saves the first time)
+export function initLearnset(c, extra = []) {
+  if (!hasLearnset(c)) return c;
+  const learned = [...new Set([...earnedMoves(c), ...extra.filter(id => moveById(id))])];
+  const pick = [...learned].reverse().slice(0, 4).reverse();
+  return { ...c, learned, moves: pick.map(moveById), mastery: c.mastery || {}, learnsetV: 1 };
+}
+// Keep move details current with the move list (older saves stored copies)
+export const refreshMoves = c => (c.moves ? { ...c, moves: c.moves.map(m => MOVES[m.id] || m) } : c);
+// On a level-up: species with a list learn whatever they've newly earned (and equip it if there's room);
+// the rest still pick up moves the old way
+export function levelUpMoves(c, newLevel) {
+  if (newLevel <= (c.level || 1)) return { moves: c.moves || [], learned: c.learned, names: [] };
+  if (hasLearnset(c)) {
+    const known = new Set(c.learned || []), fresh = earnedMoves(c, newLevel).filter(id => !known.has(id));
+    let moves = [...(c.moves || [])];
+    for (const id of fresh) if (moves.length < 4) moves.push(moveById(id));
+    return { moves, learned: [...(c.learned || []), ...fresh], names: fresh.map(id => moveById(id).name) };
+  }
+  let moves = c.moves || [], names = [];
+  for (let l = (c.level || 1) + 1; l <= newLevel; l++) {
+    const m = learnMoveAtLevel(c.dna, l, moves);
+    if (m) { moves = moves.length < 4 ? [...moves, m] : [moves[0], ...moves.slice(2), m]; names.push(m.name); }
+  }
+  return { moves, learned: c.learned, names };
+}

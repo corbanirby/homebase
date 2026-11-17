@@ -15,11 +15,19 @@ import { placeholderSprite } from "./placeholderArt.js";
 //   temper:       range of the aggression gene for wild ones (low runs or hides, high charges you)
 //   fastHours:    how long it survives on an empty stomach before starving to death
 //   scavenger:    eats remains
+//   learnset:     moves learned at a level, some only once it reaches a life stage (stage 9)
+//   elder:        how its stats change as an elder (default: Attack, Elemental and Speed −15%)
+//   stamina:      how much stamina it has compared with an average creature
 //   base:         battle stats compared with an average creature (1.0): hp, atk, def, ele (Elemental), res (Resistance), spd
 const HOMEFOOD = ["bogmoss", "cattail"];
 export const SPECIES = {
   ramtarug: { no:1, name:"Ramtarug", base:{hp:1.05,atk:1.0,def:1.0,ele:1.0,res:1.0,spd:0.95}, fastHours:24, path:"sprites/ramtarug", types:["Poison"], lifespanDays:28,
-    habitat:{ wet:[0.22,0.55,0.95] }, eats:HOMEFOOD, diet:"Moss and reeds", native:"Coastal-plain swamps (Okefenokee)", sizeMul:1 },
+    habitat:{ wet:[0.22,0.55,0.95] }, eats:HOMEFOOD, diet:"Moss and reeds", native:"Coastal-plain swamps (Okefenokee)", sizeMul:1,
+    // Elders stop fighting fast and start enduring
+    elder:{ def:1.1, res:1.1, atk:0.85, spd:0.85 }, stamina:1,
+    learnset:[ {lv:1,move:"bump"}, {lv:7,move:"sourspit"}, {lv:10,move:"warningspots"}, {lv:17,move:"mudkick"},
+      {lv:23,stage:"adolescent",move:"ram"}, {lv:29,stage:"adolescent",move:"foulbite"}, {lv:36,stage:"adult",move:"swampgas"},
+      {lv:40,stage:"adult",move:"toxichide"}, {lv:46,stage:"adult",move:"skullcrack"}, {lv:52,stage:"elder",move:"oldramsstand"} ] },
   kudzoon: { no:2, name:"Kudzoon", base:{hp:1.15,atk:0.85,def:1.0,ele:1.05,res:1.05,spd:0.75}, fastHours:96, art:"kudzoon", types:["Plant"], lifespanDays:30, habitat:{ wet:[0.15,0.45,0.85] }, eats:HOMEFOOD,
     diet:"Sunlight and soil; spreads fast", based:"Kudzu", biomes:{ kudzu:1, forest:0.25, clay:0.2, meadow:0.15 }, sizeMul:1.0, temper:[0.3,0.8] },
   thrummet: { no:3, name:"Thrummet", base:{hp:0.85,atk:0.95,def:0.9,ele:1.05,res:0.9,spd:1.2}, fastHours:12, art:"thrummet", types:["Bug","Air"], lifespanDays:35, habitat:{ wet:[0.2,0.5,0.85] }, eats:HOMEFOOD,

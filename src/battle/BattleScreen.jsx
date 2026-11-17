@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { XP_PER_LEVEL } from "../config.js";
 import { lifeStage, speciesOf, spriteImage, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
-import { learnMoveAtLevel, TYPE_COLORS } from "./moves.js";
-import { makeBattler, executeBattleMove, applyEndOfTurn, aiPickMove, goesFirst } from "./engine.js";
+import { levelUpMoves, TYPE_COLORS } from "./moves.js";
+import { moveEffectText } from "./movelist.js";
+import { makeBattler, executeBattleMove, endOfRound, aiPickMove, goesFirst, benchState, usableMoves, isPhysical } from "./engine.js";
+import { STATUS, toWorld } from "./statuses.js";
 
 // ─── Battle components ────────────────────────────────────────────────────────
 export function BattleSprite({creature,size=90,flipped=false,shake=false}){
@@ -37,18 +39,24 @@ export function HpBar({current,max,label,level,sex=null}){
   );
 }
 
-export function StatusBadge({status}){
-  if(!status)return null;
-  const map={burn:["🔥","#f97316"],poison:["☠️","#a855f7"],paralyze:["⚡","#eab308"],freeze:["🧊","#38bdf8"]};
-  const[icon,color]=map[status]||["?","#888"];
-  return <span style={{background:color+"33",border:`1px solid ${color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color}}>{icon} {status}</span>;
+const BADGE_LEGACY={burn:["🔥","#f97316","burn"],poison:["☠️","#a855f7","poison"],paralyze:["⚡","#eab308","paralyzed"],freeze:["🧊","#38bdf8","frozen"]};
+// Every status it has, with its level (copies running) and turns left
+export function StatusBadges({b}){
+  const by=new Map();
+  for(const f of b.fx||[]){ const e=by.get(f.id)||{id:f.id,n:0,turns:0}; e.n++; e.turns=Math.max(e.turns,f.turns); by.set(f.id,e); }
+  const items=[...by.values()].map(e=>{ const d=STATUS[e.id]||{}; return {key:e.id,icon:d.icon||"?",color:d.color||"#888",text:(d.name||e.id)+(e.n>1?" "+e.n:"")+(e.id==="knocked"?"":` · ${e.turns}`)}; });
+  if(b.status&&BADGE_LEGACY[b.status]){ const[icon,color,text]=BADGE_LEGACY[b.status]; items.push({key:"legacy",icon,color,text}); }
+  if(!items.length) return null;
+  return <div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"center",maxWidth:150}}>
+    {items.map(i=><span key={i.key} style={{background:i.color+"33",border:`1px solid ${i.color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color:i.color,whiteSpace:"nowrap"}}>{i.icon} {i.text}</span>)}
+  </div>;
 }
 
 export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp,intro=null,canCatch=true,pods=[],onPodBroken=null,biome=null}){
   const[showPods,setShowPods]=useState(false);
   const[phase,setPhase]=useState("player_turn");
   const[player,setPlayer]=useState(()=>makeBattler(playerCreature,biome));
-  const[enemy,setEnemy]=useState(()=>makeBattler(wildCreature,biome));
+  const[enemy,setEnemy]=useState(()=>makeBattler({...wildCreature,wild:true},biome));
   const[activeCreature,setActiveCreature]=useState(playerCreature); // tracks sprite
   const[log,setLog]=useState(()=>{
     const l=[intro||("A wild Lv"+(wildCreature.level||1)+" "+speciesOf(wildCreature).name+" appeared!")];
@@ -65,6 +73,12 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   const playerRef=useRef(player);
   const busyRef=useRef(false);        // true from the moment you act until your next turn starts
   const afterQueueRef=useRef(null);   // runs once the current messages finish (e.g. the foe's turn)
+  // Time in battle: each round is a turn (5 minutes) for every creature you carry
+  const roundRef=useRef(0);
+  // Creatures on the bench keep their stat stages, statuses and stamina (and their clocks keep running)
+  const benchRef=useRef(new Map());
+  // How often each of your creatures used each move (mastery)
+  const usesRef=useRef({});
   // Single gate for every player action: blocks double taps before React re-renders
   function claimTurn(){
     if(phase!=="player_turn"||busyRef.current) return false;
@@ -82,7 +96,6 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     if(!pending||!pending.length)return;
     const timer=setTimeout(()=>{
       const[item,...rest]=pending;
-      // Apply any deferred state update for this message
       if(item.applyState) item.applyState();
       setLog(l=>[...l,String(item.msg||'')]);
       if(!rest.length){
@@ -108,7 +121,29 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     }
     else giveTurnBack();
   }
+  // A benched creature catches up on the rounds it sat out (poison keeps hurting, stamina comes back)
+  function catchUpBench(b,rounds){
+    let x=b;
+    for(let i=0;i<rounds&&x.battleHp>0;i++){ x=endOfRound(x).b; x={...x,stamina:Math.min(x.maxSta,x.stamina+Math.round(x.maxSta*0.05))}; }
+    return x;
+  }
+  function benchFor(c){
+    const saved=benchRef.current.get(c.id); if(!saved) return {b:makeBattler(c,biome),rounds:0};
+    return {b:catchUpBench(makeBattler(c,biome,saved),roundRef.current-saved.at),rounds:roundRef.current-saved.at};
+  }
+  // What the battle did to everyone you carry: statuses and stamina going back into the world
+  function battleResults(active){
+    const updates={};
+    const put=b=>{ updates[b.id]={statuses:toWorld(b.fx),stamina:b.maxSta?b.stamina/b.maxSta:1,fatigued:!!b.fatigued,hp:b.battleHp/b.maxHp}; };
+    if(active) put(active);
+    for(const c of battleInventory||[]){
+      if(!c||c.id===active?.id||!benchRef.current.has(c.id)) continue;
+      put(benchFor(c).b);
+    }
+    return {rounds:roundRef.current,updates,uses:usesRef.current,entered:[...benchRef.current.keys(),active?.id].filter(Boolean)};
+  }
   function endBattle(result,fp,fe){
+    const extra=battleResults(fp);
     if(result==="win"){
       const totalXp=Math.floor(20+(fe.level||1)*8);
       const numPart=participantIds.size||1;
@@ -117,78 +152,50 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       const xpNeeded=Math.floor(XP_PER_LEVEL*(fp.dna.xpRate??1));
       const nxp=(fp.xp||0)+xpEach, nl=Math.floor(nxp/xpNeeded)+1;
       const lu=nl>(fp.level||1);
-      let nm=fp.moves||[];
-      let lmsg=null;
-      if(lu){const learned=learnMoveAtLevel(fp.dna,nl,nm);if(learned){nm=nm.length<4?[...nm,learned]:[nm[0],...nm.slice(2),learned];lmsg="Learned "+learned.name+"!";}}
+      const up=levelUpMoves(fp,nl);
       const lvMsg=lu?" Level UP → Lv"+nl+"!":"";
-      setLog(l=>{const m=[...l,"Won! +"+xpEach+" XP"+xpMsg+"."+lvMsg];if(lmsg)m.push(lmsg);return m;});
+      setLog(l=>{const m=[...l,"Won! +"+xpEach+" XP"+xpMsg+"."+lvMsg];for(const n of up.names) m.push(`${fp.label} learned ${n}!`);return m;});
       setPhase("end");
-      setTimeout(()=>onEnd("win",{...fp,xp:nxp,level:nl,moves:nm,hp:fp.battleHp/fp.maxHp},participantIds,xpEach),lu?1800:1200);
+      setTimeout(()=>onEnd("win",{...fp,xp:nxp,level:Math.max(fp.level||1,nl),moves:up.moves,learned:up.learned,hp:fp.battleHp/fp.maxHp},participantIds,xpEach,extra),lu?1800:1200);
     } else {
       setLog(l=>[...l,"Your creature fainted..."]);
       setPhase("end");
-      setTimeout(()=>onEnd("loss",{...fp,hp:0.05}),1200);
+      setTimeout(()=>onEnd("loss",{...fp,hp:0.05},null,0,extra),1200);
     }
   }
+  // Show a creature's move results one message at a time; HP changes when the first result shows
+  function queueMove(items,r,before,mine){
+    const [first,...rest]=r.msgs;
+    items.push({msg:first});
+    const apply=()=>{
+      const a=r.newAttacker, d=r.newDefender;
+      if(mine){ setPlayer(a); playerRef.current=a; setEnemy(d); enemyRef.current=d; if(d.battleHp<before.battleHp){setShakeE(true);setTimeout(()=>setShakeE(false),200);} }
+      else { setEnemy(a); enemyRef.current=a; setPlayer(d); playerRef.current=d; if(d.battleHp<before.battleHp){setShakeP(true);setTimeout(()=>setShakeP(false),200);} }
+    };
+    if(rest.length){ items.push({msg:rest[0],applyState:apply}); for(let i=1;i<rest.length;i++) items.push({msg:rest[i]}); }
+    else items[items.length-1]={...items[items.length-1],applyState:apply};
+  }
+  // The end of a round: poison, statuses counting down, stamina for the ones that rested
+  function queueRoundEnd(items,p,e){
+    roundRef.current++;
+    const rp=endOfRound(p), re=endOfRound(e);
+    for(const m of rp.msgs) items.push({msg:m});
+    for(const m of re.msgs) items.push({msg:m});
+    const apply=()=>{ setPlayer(rp.b); playerRef.current=rp.b; setEnemy(re.b); enemyRef.current=re.b; };
+    if(rp.msgs.length||re.msgs.length){ const i=items.length-rp.msgs.length-re.msgs.length; items[i]={...items[i],applyState:apply}; }
+    else apply();
+    return {p:rp.b,e:re.b};
+  }
 
-  // Build a pending queue where state updates are deferred to match log display
-  function doEnemyTurn(currentEnemy, currentPlayer, extraMsgs=[], then=null) {
+  // The foe's action. `endsRound` when it's the second action of the round.
+  function doEnemyTurn(currentEnemy, currentPlayer, extraMsgs=[], then=null, endsRound=true) {
     const em=aiPickMove(currentEnemy,currentPlayer);
     const r=executeBattleMove(currentEnemy,currentPlayer,em);
-    let finalPlayer=r.newDefender;
-    let finalEnemy=r.newAttacker;
-
-    // Start with pre-action messages — extraMsgs may be strings or {msg} objects
     const items=extraMsgs.map(m=>typeof m==='string'?{msg:m}:m);
-
-    // "Foe used X!" — no HP change yet
-    items.push({msg:"Foe used "+em.name+"!"});
-
-    // Damage messages — apply HP reduction when each shows
-    const dmgMsgs=r.msgs.slice(1); // skip the "Used X!" repeat
-    if(dmgMsgs.length>0){
-      // First damage message triggers the HP drop + shake
-      const afterDmgPlayer=r.newDefender;
-      const afterDmgEnemy=r.newAttacker;
-      items.push({
-        msg:dmgMsgs[0],
-        applyState:()=>{
-          setPlayer(afterDmgPlayer); playerRef.current=afterDmgPlayer;
-          setEnemy(afterDmgEnemy);  enemyRef.current=afterDmgEnemy;
-          if(afterDmgPlayer.battleHp<currentPlayer.battleHp){
-            setShakeP(true);setTimeout(()=>setShakeP(false),200);
-          }
-        }
-      });
-      // Remaining damage messages (stat drops, etc.)
-      for(let i=1;i<dmgMsgs.length;i++) items.push({msg:dmgMsgs[i]});
-    } else {
-      // No damage messages (miss, stat move) — still update state on move message
-      items[items.length-1]={
-        ...items[items.length-1],
-        applyState:()=>{
-          setPlayer(finalPlayer); playerRef.current=finalPlayer;
-          setEnemy(finalEnemy);  enemyRef.current=finalEnemy;
-        }
-      };
-    }
-
-    // End of turn status (burn/poison tick)
-    const{b:pAfter,msg:pMsg}=applyEndOfTurn(finalPlayer);
-    if(pMsg){
-      finalPlayer=pAfter;
-      items.push({msg:pMsg, applyState:()=>{setPlayer(pAfter);playerRef.current=pAfter;}});
-    }
-    const{b:eAfter2,msg:eMsg2}=applyEndOfTurn(finalEnemy);
-    if(eMsg2){
-      finalEnemy=eAfter2;
-      items.push({msg:eMsg2, applyState:()=>{setEnemy(eAfter2);enemyRef.current=eAfter2;}});
-    }
-
-    // Ensure refs end up with final values
-    playerRef.current=finalPlayer;
-    enemyRef.current=finalEnemy;
-
+    queueMove(items,r,currentPlayer,false);
+    let p=r.newDefender, e=r.newAttacker;
+    if(endsRound&&p.battleHp>0&&e.battleHp>0) ({p,e}=queueRoundEnd(items,p,e));
+    playerRef.current=p; enemyRef.current=e;
     if(then) afterQueueRef.current=then;
     setPending(items);
   }
@@ -196,12 +203,13 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   // The faster creature acts first. If the foe is quicker it moves, then you do (if you're still standing).
   function handleMove(move){
     if(!claimTurn())return;
+    const u=usesRef.current[player.id]||(usesRef.current[player.id]={}); u[move.id]=(u[move.id]||0)+1;
     if(!goesFirst(player,enemy)){
       doEnemyTurn(enemy,player,[{msg:`The wild ${speciesOf(wildCreature).name} is quicker!`}],()=>{
         const p=playerRef.current, e=enemyRef.current;
         if(p.battleHp<=0||e.battleHp<=0){ settleTurn(); return; }
         playerAct(move,p,e,false);
-      });
+      },false);
       return;
     }
     playerAct(move,player,enemy,true);
@@ -209,59 +217,18 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   function playerAct(move,player,enemy,thenFoe){
     const r1=executeBattleMove(player,enemy,move);
     const items=[];
-
-    // "Used X!" message — no HP change yet
-    items.push({msg:r1.msgs[0]||("Used "+move.name+"!")});
-
-    // Damage/effect messages — apply on display
-    const dmgMsgs1=r1.msgs.slice(1);
-    if(dmgMsgs1.length>0){
-      items.push({
-        msg:dmgMsgs1[0],
-        applyState:()=>{
-          setPlayer(r1.newAttacker); playerRef.current=r1.newAttacker;
-          setEnemy(r1.newDefender);  enemyRef.current=r1.newDefender;
-          if(r1.newDefender.battleHp<enemy.battleHp){setShakeE(true);setTimeout(()=>setShakeE(false),200);}
-        }
-      });
-      for(let i=1;i<dmgMsgs1.length;i++) items.push({msg:dmgMsgs1[i]});
-    } else {
-      items[0]={...items[0],applyState:()=>{
-        setPlayer(r1.newAttacker);playerRef.current=r1.newAttacker;
-        setEnemy(r1.newDefender);enemyRef.current=r1.newDefender;
-      }};
-    }
-
-    // If enemy faints, stop here
-    if(r1.newDefender.battleHp<=0){
-      playerRef.current=r1.newAttacker; enemyRef.current=r1.newDefender;
-      setPending(items); return;
-    }
-
-    // When the foe already moved this turn, the turn ends here (its turn ticked burns and poison)
-    if(!thenFoe){ playerRef.current=r1.newAttacker; enemyRef.current=r1.newDefender; setPending(items); return; }
-    // End of turn status on enemy
-    let currentEnemy=r1.newDefender;
-    const{b:eAfter,msg:eMsg}=applyEndOfTurn(currentEnemy);
-    if(eMsg){
-      currentEnemy=eAfter;
-      items.push({msg:eMsg,applyState:()=>{setEnemy(eAfter);enemyRef.current=eAfter;}});
-    }
-    if(eAfter.battleHp<=0){
-      playerRef.current=r1.newAttacker; enemyRef.current=currentEnemy;
-      setPending(items); return;
-    }
-
-    // Queue enemy turn after all player messages resolve
-    playerRef.current=r1.newAttacker; enemyRef.current=currentEnemy;
-    const playerAfterMove=r1.newAttacker;
-    // Foe acts only after your messages finish; input stays locked until then
-    afterQueueRef.current=()=>doEnemyTurn(currentEnemy,playerAfterMove,[]);
+    queueMove(items,r1,enemy,true);
+    let p=r1.newAttacker, e=r1.newDefender;
+    if(e.battleHp<=0||p.battleHp<=0){ playerRef.current=p; enemyRef.current=e; setPending(items); return; }
+    // When the foe already moved this round, the round ends here
+    if(!thenFoe){ ({p,e}=queueRoundEnd(items,p,e)); playerRef.current=p; enemyRef.current=e; setPending(items); return; }
+    playerRef.current=p; enemyRef.current=e;
+    afterQueueRef.current=()=>doEnemyTurn(enemyRef.current,playerRef.current,[]);
     setPending(items);
   }
 
   // You open an empty pod in front of it; how well the pod suits it changes the chance.
-  // For now a refusal sometimes means it attacks the pod and breaks it (stage 8 brings the full scene).
+  // For now a refusal sometimes means it attacks the pod and breaks it (stage 11 brings the full scene).
   const baseChance=()=>Math.min(0.95,Math.max(0.05,0.05+(1-enemy.battleHp/enemy.maxHp)*0.947));
   const podChance=pod=>Math.min(0.95,Math.max(0.03,baseChance()*pod.fit));
   function tryCapture(pod){
@@ -269,34 +236,45 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     setShowPods(false);
     const ch=podChance(pod), name=speciesOf(wildCreature).name;
     if(Math.random()<ch){
-      const caught={...wildCreature,hp:enemy.battleHp/enemy.maxHp,level:enemy.level};
+      const e=enemyRef.current;
+      // It comes home with whatever it has (poison and all)
+      const caught={...wildCreature,hp:e.battleHp/e.maxHp,level:e.level,statuses:toWorld(e.fx),stamina:e.stamina/e.maxSta,fatigued:!!e.fatigued};
       const mine={battleHp:player.battleHp,maxHp:player.maxHp};
-      afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine,pod.id),400); };
+      const extra=battleResults(playerRef.current);
+      afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine,pod.id,extra),400); };
       setPending([{msg:`You open the ${pod.label.toLowerCase()}... the ${name} steps inside!`}]);
     } else {
       const broke=Math.random()<0.25;
       if(broke&&onPodBroken) onPodBroken(pod.id);
-      const{b:eAfter}=applyEndOfTurn(enemy);
-      doEnemyTurn(eAfter,player,[{msg:broke?`You open the ${pod.label.toLowerCase()}... the ${name} attacks it, and the pod breaks!`:`You open the ${pod.label.toLowerCase()}... the ${name} backs away. Weaken it more.`}]);
+      doEnemyTurn(enemy,player,[{msg:broke?`You open the ${pod.label.toLowerCase()}... the ${name} attacks it, and the pod breaks!`:`You open the ${pod.label.toLowerCase()}... the ${name} backs away. Weaken it more.`}]);
     }
   }
 
+  // Switching: the one going out keeps what it had on the bench; the one coming in brings back its own
+  function sendIn(idx){
+    const out=playerRef.current;
+    benchRef.current.set(out.id,{...benchState(out),at:roundRef.current});
+    onSaveBattleHp(0, out.battleHp, out.maxHp);
+    onSwapToFront(idx);
+    const incoming=battleInventory[idx];
+    const {b}=benchFor(incoming);
+    benchRef.current.delete(incoming.id);
+    setPlayer(b); playerRef.current=b;
+    setActiveCreature(incoming);
+    setParticipantIds(prev=>new Set([...prev,incoming.id]));
+    return b;
+  }
   function handleSwap(idx){
     if(idx===0)return;
     const c=battleInventory[idx]; if(!c||c.fainted||(c.hp||0)<=0.05)return;
     if(!claimTurn())return;
     setShowSwap(false);
-    // Save current battler's HP back to inventory slot 0 before swapping
-    onSaveBattleHp(0, player.battleHp, player.maxHp);
-    onSwapToFront(idx);
-    const incoming=battleInventory[idx];
-    // incoming already has battleHp if it was previously in battle
-    const newBattler=makeBattler(incoming,biome);
-    setPlayer(newBattler);
-    setActiveCreature(incoming);
-    setParticipantIds(prev=>new Set([...prev,incoming.id]));
-    const{b:eAfter}=applyEndOfTurn(enemy);
-    doEnemyTurn(eAfter,newBattler,[{msg:"Switched to new creature!"}]);
+    const b=sendIn(idx);
+    doEnemyTurn(enemy,b,[{msg:`Go, ${b.label}!`}]);
+  }
+  function fleeBattle(){
+    const p=playerRef.current;
+    onEnd("flee",{...p,hp:p.battleHp/p.maxHp},null,0,battleResults(p));
   }
 
   const bg="linear-gradient(180deg,#0f172a 0%,#1e1b4b 60%,#312e81 100%)";
@@ -309,14 +287,14 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
         <div style={{display:"flex",justifyContent:"flex-end",alignItems:"flex-end",gap:12}}>
           <HpBar current={enemy.battleHp} max={enemy.maxHp} label={"Wild "+speciesOf(wildCreature).name} level={enemy.level} sex={wildCreature.sex}/>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-            <StatusBadge status={enemy.status}/>
+            <StatusBadges b={enemy}/>
             <BattleSprite creature={wildCreature} size={120} flipped={true} shake={shakeE}/>
           </div>
         </div>
         <div style={{textAlign:"center",color:"rgba(255,255,255,0.07)",fontSize:26,letterSpacing:8}}>— vs —</div>
         <div style={{display:"flex",justifyContent:"flex-start",alignItems:"flex-end",gap:12}}>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-            <StatusBadge status={player.status}/>
+            <StatusBadges b={player}/>
             <BattleSprite creature={activeCreature} size={120} shake={shakeP}/>
           </div>
           <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level} sex={activeCreature.sex}/>
@@ -346,21 +324,21 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
         {phase==="player_turn"&&!showSwap&&!showPods&&(
           <>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
-              {player.moves.map(move=>(
-                <button key={move.id}
-                  
+              {(()=>{ const ok=new Set(usableMoves(player).map(m=>m.id)); return player.moves.map(move=>{ const can=ok.has(move.id), fx=moveEffectText(move); return(
+                <button key={move.id} disabled={!can}
                   onClick={()=>handleMove(move)}
                   onContextMenu={e=>e.preventDefault()}
-                  style={{...btnStyle,background:`${TYPE_COLORS[move.type]}22`,border:`1.5px solid ${TYPE_COLORS[move.type]}88`,borderRadius:8,padding:"7px 6px",color:"#e2e8f0",fontSize:12,textAlign:"left"}}>
+                  style={{...btnStyle,background:`${TYPE_COLORS[move.type]}22`,border:`1.5px solid ${TYPE_COLORS[move.type]}88`,borderRadius:8,padding:"7px 6px",color:"#e2e8f0",fontSize:12,textAlign:"left",opacity:can?1:0.4}}>
                   <div style={{fontWeight:"bold",marginBottom:1}}>{move.name}</div>
-                  <div style={{display:"flex",gap:6,fontSize:10,color:"#94a3b8"}}>
-                    <span style={{color:TYPE_COLORS[move.type]}}>{move.type}</span>
+                  <div style={{display:"flex",gap:6,fontSize:10,color:"#94a3b8",flexWrap:"wrap"}}>
+                    <span style={{color:TYPE_COLORS[move.type]}}>{move.kind?move.type:move.type}</span>
+                    <span>{move.power>0?(isPhysical(move)?"Phys":"Elem"):"Support"}</span>
                     {move.power>0&&<span>PWR {move.power}</span>}
                     {move.acc<1&&<span>ACC {Math.round(move.acc*100)}%</span>}
-                    {move.effect&&<span style={{color:"#fbbf24"}}>✦</span>}
+                    {(move.effect||fx)&&<span style={{color:"#fbbf24"}} title={fx||move.effect}>✦</span>}
                   </div>
-                </button>
-              ))}
+                  {!can&&<div style={{fontSize:9,color:"#f87171"}}>Too tired</div>}
+                </button>); }); })()}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
               <button onClick={()=>setShowPods(true)} disabled={!canCatch||!pods.length} onContextMenu={e=>e.preventDefault()}
@@ -371,7 +349,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                 style={{...btnStyle,background:"rgba(96,165,250,0.15)",border:"1.5px solid rgba(96,165,250,0.4)",borderRadius:8,padding:"7px 4px",color:"#60a5fa",fontSize:11}}>
                 🔄 SWAP<br/><span style={{fontSize:9,opacity:0.8}}>(costs turn)</span>
               </button>
-              <button onClick={()=>onEnd("flee",{...player,hp:player.battleHp/player.maxHp})} onContextMenu={e=>e.preventDefault()}
+              <button onClick={fleeBattle} onContextMenu={e=>e.preventDefault()}
                 style={{...btnStyle,background:"rgba(100,116,139,0.15)",border:"1.5px solid rgba(100,116,139,0.4)",borderRadius:8,padding:"7px 4px",color:"#94a3b8",fontSize:11}}>
                 🏃 FLEE
               </button>
@@ -388,14 +366,9 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                   <button key={i}
                     
                     onClick={()=>{
-                      onSaveBattleHp(0,0,player.maxHp);
-                      onSwapToFront(i);
-                      const inc=battleInventory[i];
-                      const nb=makeBattler(inc,biome);
-                      setPlayer(nb);setActiveCreature(inc);
-                      setParticipantIds(prev=>new Set([...prev,inc.id]));
+                      const nb=sendIn(i);
                       giveTurnBack();
-                      setLog(l=>[...l,"Go, new creature!"]);
+                      setLog(l=>[...l,`Go, ${nb.label}!`]);
                     }}
                     onContextMenu={e=>e.preventDefault()}
                     style={{...btnStyle,background:dnaColor(c.dna,15),border:`1.5px solid ${dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:"#e2e8f0",fontSize:11}}>

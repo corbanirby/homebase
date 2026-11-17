@@ -18,7 +18,9 @@ import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText,
 import { simulateHome } from "./sim/home.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor, wildPlants, pickWild, wildPlantSpots } from "./sim/outside.js";
 import { atlanta, areaKey, BIOME_NAMES } from "./world/atlanta.js";
-import { learnMoveAtLevel, deriveMoves } from "./battle/moves.js";
+import { deriveMoves, levelUpMoves, initLearnset, refreshMoves, hasLearnset, moveById, masteryTier, MASTERY, TYPE_COLORS } from "./battle/moves.js";
+import { moveEffectText } from "./battle/movelist.js";
+import { tickStatuses, restoreStamina, statusSummary, staminaWord, TURN_MS, STATUS } from "./battle/statuses.js";
 import { BattleScreen } from "./battle/BattleScreen.jsx";
 import DPad from "./ui/DPad.jsx";
 
@@ -84,15 +86,16 @@ const withPods=s=>{
 const seedsToFood=s=>{ const seeds=s.seeds||{}, food={...(s.food||{bogmoss:2,cattail:1})}; let moved=false;
   for(const k of Object.keys(seeds)) if(!PLANT_SPECIES[k]?.pod&&seeds[k]>0){ food[k]=(food[k]||0)+seeds[k]; moved=true; }
   return moved||s.seeds?{...s,food,seeds:{}}:s; };
-const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods({...s0,creatures:(s0.creatures||[]).map(ensureGenome)}))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+// Species with a move list (stage 9) get their moves from it the first time; the rest keep theirs
+const ensureMoves=c=>c.isEgg?c:hasLearnset(c)&&!c.learnsetV?initLearnset(c):refreshMoves(c);
+const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods({...s0,creatures:(s0.creatures||[]).map(c=>ensureMoves(ensureGenome(c)))}))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
   const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
   const nxp=(c.xp||0)+xp, nl=Math.floor(nxp/need)+1;
-  let moves=c.moves||[];
-  if(nl>(c.level||1)){ const m=learnMoveAtLevel(c.dna,nl,moves); if(m) moves=moves.length<4?[...moves,m]:[moves[0],...moves.slice(2),m]; }
-  return {...c,xp:nxp,level:Math.max(c.level||1,nl),moves};
+  const up=levelUpMoves(c,nl);
+  return {...c,xp:nxp,level:Math.max(c.level||1,nl),moves:up.moves,learned:up.learned};
 }
 const BAG_MAX=6;
 const REST_REFILL_MS=60*60*1000; // a spring or stretch of shoals heals again after an hour
@@ -126,6 +129,7 @@ const GENES=[
   ["aggression","Temper",0.2,1.0,["Calm","Even","Bold"]],
   ["elemental","Elemental",0.6,1.4,["Dull","Average","Brilliant"]],
   ["resistance","Resistance",0.6,1.4,["Thin","Average","Hardy"]],
+  ["stamina","Stamina",0.6,1.4,["Winded","Average","Tireless"]],
 ];
 const geneWord=(v,lo,hi,words)=>{ const t=(v-lo)/(hi-lo); return words[t<0.34?0:t>0.66?2:1]; };
 const condColor=v=>v>=0.85?"#86efac":v>=0.65?"#bef264":v>=0.45?"#facc15":"#f87171";
@@ -162,7 +166,7 @@ export default function Homebase(){
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0});
   // Test hook: with ?debug in the address, automated tests can steer and read the world
-  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots}; },[]);
+  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots,moveById}; },[]);
 
   const[saveInfo,setSaveInfo]=useState(()=>readSave());
   const[screen,setScreen]=useState("title"); // title | game
@@ -454,17 +458,29 @@ export default function Homebase(){
   const settleParty=(updates)=>{
     const s=stateRef.current;
     const byId=new Map(updates.map(u=>[u.id,u]));
-    stateRef.current={...s,creatures:s.creatures.map(c=>{ const u=byId.get(c.id); return u?{...c,hp:u.hp,xp:u.xp??c.xp,level:u.level??c.level,moves:u.moves??c.moves}:c; })};
+    const keep=["hp","xp","level","moves","learned","statuses","stamina","fatigued","mastery"];
+    stateRef.current={...s,creatures:s.creatures.map(c=>{ const u=byId.get(c.id); if(!u) return c; const n={...c}; for(const k of keep) if(u[k]!==undefined) n[k]=u[k]; return n; })};
+  };
+  // What the battle did to everyone you carried: statuses, stamina and practice with moves. Ones that
+  // never came out still lived through the battle's time (5 minutes a round).
+  const applyBattleResults=(c,extra)=>{
+    if(!extra) return c;
+    const u=extra.updates?.[c.id];
+    let n=u?{...c,statuses:u.statuses,stamina:u.stamina,fatigued:u.fatigued,hp:u.hp??c.hp}:restoreStamina(tickStatuses(c,(extra.rounds||0)*TURN_MS,1),(extra.rounds||0)*TURN_MS,1);
+    const uses=extra.uses?.[c.id];
+    if(uses){ const m={...(n.mastery||{})}; for(const[k,v] of Object.entries(uses)) m[k]=(m[k]||0)+v; n={...n,mastery:m}; }
+    return n;
   };
   const partyHp=c=>c.battleHp!=null&&c.maxHp?Math.max(c.fainted?0.05:0.05,c.battleHp/c.maxHp):(c.hp??1);
   const endBattle=()=>{ battleRef.current=null; setBattle(null); lastFrameRef.current=0; accRef.current=0; };
-  const handleBattleEnd=(result,fp,partIds,xpEach)=>{
+  const handleBattleEnd=(result,fp,partIds,xpEach,extra)=>{
     const p=partyRef.current, wild=battleRef.current?.wild;
     endBattle();
     const leadHp=result==="loss"?0.05:fp.battleHp!=null&&fp.maxHp?Math.max(0.05,fp.battleHp/fp.maxHp):Math.max(0.05,fp.hp||0.05);
-    const ups=p.map((c,i)=>{
-      if(i===0) return {...c,hp:leadHp,xp:fp.xp??c.xp,level:fp.level??c.level,moves:fp.moves??c.moves};
-      let u={...c,hp:partyHp(c)};
+    const ups=p.map((c0,i)=>{
+      const c=applyBattleResults(c0,extra);
+      if(i===0) return {...c,hp:leadHp,xp:fp.xp??c.xp,level:fp.level??c.level,moves:fp.moves??c.moves,learned:fp.learned??c.learned};
+      let u={...c,hp:Math.max(0.05,Math.min(partyHp(c),c.hp??1))};
       if(result==="win"&&xpEach&&partIds?.has?.(c.id)) u=giveXp(u,xpEach);
       return u;
     });
@@ -480,15 +496,16 @@ export default function Homebase(){
     refreshUi(); saveNow();
   };
   const breakPod=podId=>{ const s=stateRef.current; stateRef.current={...s,pods:(s.pods||[]).filter(p=>p.id!==podId)}; refreshUi(); };
-  const handleBattleCapture=(caught,mine,podId)=>{
+  const handleBattleCapture=(caught,mine,podId,extra)=>{
     const p=partyRef.current;
     endBattle();
     const leadHp=mine?.battleHp!=null&&mine?.maxHp?Math.max(0.05,mine.battleHp/mine.maxHp):p[0]?.hp??1;
-    settleParty(p.map((c,i)=>({...c,hp:i===0?leadHp:partyHp(c)})));
+    settleParty(p.map((c0,i)=>{ const c=applyBattleResults(c0,extra); return {...c,hp:i===0?leadHp:Math.max(0.05,Math.min(partyHp(c),c.hp??1))}; }));
     const s=stateRef.current;
     const name=pickName(s.creatures.map(c=>c.name));
     const pet={...caught,wild:false,name,mood:null,state:"wander",targetId:null,path:null,dcol:0,drow:0,battleHp:null,maxHp:undefined,
       moves:caught.moves||deriveMoves(caught.dna,speciesOf(caught).types),habitat:1,petAt:0};
+    if(hasLearnset(pet)) Object.assign(pet,initLearnset(pet));
     const toVine=(s.vine||[]).length<6;
     const trip={...s.trip,bag:toVine?s.trip.bag:[...s.trip.bag,pet.id]};
     // The pod it stepped into becomes its own (or one just like it, if that one is gone)
@@ -525,6 +542,17 @@ export default function Homebase(){
     setCardId(null); setConfirmRelease(null); refreshUi(); saveNow();
   };
 
+  // ── Bring 4: which of the moves it knows it takes into battle (changed at home, your door, springs and shoals)
+  const toggleMove=(id,moveId)=>{
+    const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
+    if(s.where==="out"&&!atSwapSpot(s)) return;
+    const on=(c.moves||[]).map(m=>m.id);
+    let next=on.includes(moveId)?on.filter(x=>x!==moveId):on.length<4?[...on,moveId]:on;
+    if(!next.length) return;
+    const order=c.learned||next;
+    next=order.filter(x=>next.includes(x));
+    stateRef.current={...s,creatures:s.creatures.map(o=>o.id===id?{...o,moves:next.map(moveById)}:o)}; refreshUi(); saveNow();
+  };
   // ── Feeding the food you carry
   const feedCreature=id=>{
     const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
@@ -532,7 +560,7 @@ export default function Homebase(){
     if(!kind){ addFloat("No food it eats in your bag","#facc15"); return; }
     if(c.fullness>=0.95){ addFloat(`${c.name} is full`,"#facc15"); return; }
     // A meal fills 30% and heals 15%
-    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),hp:Math.min(1,(o.hp??1)+0.15),starving:0}:o)};
+    stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+0.15),starving:0}:o)};
     refreshUi(); saveNow();
   };
   // Out in the world, creatures move between vine and bag only at your door, springs and shoals
@@ -1207,6 +1235,30 @@ export default function Homebase(){
                         </div>
                       ))}
                     </div>
+                  </div>); })()}
+                {(()=>{ const sts=statusSummary(c), word=staminaWord(c); return (
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center",fontSize:11}}>
+                    <span style={{color:word==="Fresh"?"#86efac":word==="Winded"?"#facc15":"#f87171"}}>Stamina: {word}</span>
+                    {sts.map(x=>{ const d=STATUS[x.id]||{}; return <span key={x.id} style={{background:(d.color||"#888")+"22",border:`1px solid ${d.color||"#888"}`,color:d.color||"#ccc",borderRadius:4,padding:"1px 6px",fontSize:10}}>{d.icon} {d.name||x.id}{x.n>1?" "+x.n:""} · {formatDuration(x.ms/(uiState.where==="out"?(uiState.bag||[]).includes(c.id)?0.5:1:2))} left</span>; })}
+                  </div>); })()}
+                {(()=>{ const ids=c.learned?.length?c.learned:(c.moves||[]).map(m=>m.id), on=new Set((c.moves||[]).map(m=>m.id));
+                  return (
+                  <div>
+                    <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Moves · brings {on.size} of {ids.length}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {ids.map(id=>{ const m=moveById(id); if(!m) return null; const eq=on.has(id), tier=masteryTier(c.mastery?.[id]||0), fx=moveEffectText(m), col=TYPE_COLORS[m.type]||"#aaa";
+                        const can=uiState.atSwap&&ids.length>1&&(eq?on.size>1:on.size<4);
+                        return (
+                        <button key={id} onClick={()=>can&&toggleMove(c.id,id)} aria-pressed={eq} disabled={!can&&!eq}
+                          style={{...btnBase,display:"block",textAlign:"left",padding:"5px 8px",borderRadius:8,background:eq?col+"22":"transparent",border:`1.5px solid ${eq?col+"99":"#1c2418"}`,opacity:eq||can?1:0.6,cursor:can?"pointer":"default"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",gap:6}}>
+                            <span style={{color:"#e2e8f0",fontSize:12}}>{eq?"● ":"○ "}{m.name}</span>
+                            <span style={{color:"#8a9a7a",fontSize:10}}>{MASTERY[tier].name}</span>
+                          </div>
+                          <div style={{color:"#8a9a7a",fontSize:10}}><span style={{color:col}}>{m.type}</span> · {m.kind?m.kind[0].toUpperCase()+m.kind.slice(1):(m.power>0?"Physical/Elemental":"Support")}{m.power>0?` · Power ${m.power}`:""}{m.acc<1?` · ${Math.round(m.acc*100)}%`:""}{fx?` · ${fx}`:m.effect?` · ${m.effect.replace("_"," ")}`:""}</div>
+                        </button>); })}
+                    </div>
+                    {ids.length>1&&<div style={{color:"#4a5a3a",fontSize:10,marginTop:3}}>{uiState.atSwap?"Tap a move to bring it or leave it (up to 4).":"Change which moves it brings at home, your door, a spring or the river shoals."}</div>}
                   </div>); })()}
                 </>}
                 {cardTab==="genes"&&<>
