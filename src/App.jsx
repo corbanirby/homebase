@@ -3,7 +3,7 @@ import { TICK_MS, XP_PER_LEVEL } from "./config.js";
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
-import { makeBattler, executeBattleMove, endOfRound, aiPickMove } from "./battle/engine.js";
+import { makeBattler, executeBattleMove, endOfRound, aiPickMove, leechDrain } from "./battle/engine.js";
 import { isPassable } from "./world/tiles.js";
 import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./world/land.js";
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
@@ -170,7 +170,7 @@ export default function Homebase(){
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0});
   // Test hook: with ?debug in the address, automated tests can steer and read the world
-  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots,moveById,engine:{makeBattler,executeBattleMove,endOfRound,aiPickMove}}; },[]);
+  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots,moveById,engine:{makeBattler,executeBattleMove,endOfRound,aiPickMove,leechDrain}}; },[]);
 
   const[saveInfo,setSaveInfo]=useState(()=>readSave());
   const[screen,setScreen]=useState("title"); // title | game
@@ -481,7 +481,7 @@ export default function Homebase(){
   const handleBattleEnd=(result,fp,partIds,xpEach,extra)=>{
     const p=partyRef.current, wild=battleRef.current?.wild;
     endBattle();
-    const leadHp=result==="loss"?0.05:fp.battleHp!=null&&fp.maxHp?Math.max(0.05,fp.battleHp/fp.maxHp):Math.max(0.05,fp.hp||0.05);
+    const leadHp=result==="loss"?0.05:fp.battleHp!=null&&fp.maxHp?Math.min(1,Math.max(0.05,fp.battleHp/fp.maxHp)):Math.max(0.05,fp.hp||0.05);
     const ups=p.map((c0,i)=>{
       const c=applyBattleResults(c0,extra);
       if(i===0) return {...c,hp:leadHp,xp:fp.xp??c.xp,level:fp.level??c.level,moves:fp.moves??c.moves,learned:fp.learned??c.learned};
@@ -504,7 +504,7 @@ export default function Homebase(){
   const handleBattleCapture=(caught,mine,podId,extra)=>{
     const p=partyRef.current;
     endBattle();
-    const leadHp=mine?.battleHp!=null&&mine?.maxHp?Math.max(0.05,mine.battleHp/mine.maxHp):p[0]?.hp??1;
+    const leadHp=mine?.battleHp!=null&&mine?.maxHp?Math.min(1,Math.max(0.05,mine.battleHp/mine.maxHp)):p[0]?.hp??1;
     settleParty(p.map((c0,i)=>{ const c=applyBattleResults(c0,extra); return {...c,hp:i===0?leadHp:Math.max(0.05,Math.min(partyHp(c),c.hp??1))}; }));
     const s=stateRef.current;
     const name=pickName(s.creatures.map(c=>c.name));

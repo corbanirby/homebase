@@ -28,8 +28,14 @@ export const SPECIES = {
     learnset:[ {lv:1,move:"bump"}, {lv:7,move:"sourspit"}, {lv:10,move:"warningspots"}, {lv:17,move:"mudkick"},
       {lv:23,stage:"adolescent",move:"ram"}, {lv:29,stage:"adolescent",move:"foulbite"}, {lv:36,stage:"adult",move:"swampgas"},
       {lv:40,stage:"adult",move:"toxichide"}, {lv:46,stage:"adult",move:"skullcrack"}, {lv:52,stage:"elder",move:"oldramsstand"} ] },
-  kudzoon: { no:2, name:"Kudzoon", base:{hp:1.15,atk:0.85,def:1.0,ele:1.05,res:1.05,spd:0.75}, fastHours:96, art:"kudzoon", types:["Plant"], lifespanDays:30, habitat:{ wet:[0.15,0.45,0.85] }, eats:HOMEFOOD,
-    diet:"Sunlight and soil; spreads fast", based:"Kudzu", biomes:{ kudzu:1, forest:0.25, clay:0.2, meadow:0.15 }, sizeMul:1.0, temper:[0.3,0.8] },
+  kudzoon: { no:2, name:"Kudzoon", base:{hp:1.15,atk:0.85,def:1.0,ele:1.05,res:1.05,spd:0.75}, fastHours:96, art:"kudzoon", types:["Plant"], lifespanDays:40, habitat:{ wet:[0.15,0.45,0.85] }, eats:HOMEFOOD,
+    diet:"Sunlight and soil; spreads fast", based:"Kudzu", biomes:{ kudzu:1, forest:0.25, clay:0.2, meadow:0.15 }, sizeMul:1.0, temper:[0.3,0.8],
+    // Old kudzu crowns live for decades: a long life, and a long, tough elder stage (from 70% of its life)
+    stageEnds:[0.107,0.286,0.70], elder:{ hp:1.1, def:1.15, res:1.15, spd:0.8, atk:0.95 }, stamina:1.2, trait:"footADay",
+    learnset:[ {lv:1,move:"vinewhip"}, {lv:6,move:"creepingrunner"}, {lv:11,move:"taproot"}, {lv:16,move:"leaffold"},
+      {lv:22,stage:"adolescent",move:"smother"}, {lv:30,stage:"adult",move:"grapebloom"}, {lv:34,stage:"adult",move:"blankethills"},
+      {lv:40,stage:"adult",move:"strangle"}, {lv:44,stage:"adult",move:"topple"}, {lv:48,stage:"adult",move:"deepcrown"},
+      {lv:54,stage:"elder",move:"woodycrown"} ] },
   thrummet: { no:3, name:"Thrummet", base:{hp:0.85,atk:0.95,def:0.9,ele:1.05,res:0.9,spd:1.2}, fastHours:12, art:"thrummet", types:["Bug","Air"], lifespanDays:35, habitat:{ wet:[0.2,0.5,0.85] }, eats:HOMEFOOD,
     diet:"Tree sap", based:"Cicada", biomes:{ forest:1, pine:0.4, kudzu:0.2 }, sizeMul:0.6, temper:[0.2,0.6] },
   scuffinch: { no:4, name:"Scuffinch", base:{hp:0.9,atk:1.1,def:0.85,ele:0.9,res:0.9,spd:1.3}, fastHours:24, art:"scuffinch", types:["Air"], lifespanDays:21, habitat:{ wet:[0.15,0.45,0.8] }, eats:HOMEFOOD,
@@ -64,9 +70,12 @@ export const STAGES = [
   { id:"adult",      until:0.857, scale:1.0, label:"Adult" },
   { id:"elder",      until:Infinity, scale:1.0, label:"Elder" },
 ];
+// Where each stage ends, as a share of its life. Species can set their own (stageEnds:[baby, adolescent, adult]).
+export const stageEnds=c=>SPECIES[c?.species]?.stageEnds||[STAGES[0].until,STAGES[1].until,STAGES[2].until];
 export function lifeStage(c){
-  const f=(c.age||0)/(c.maxAge||1);
-  return STAGES.find(s=>f<s.until)||STAGES[3];
+  const f=(c.age||0)/(c.maxAge||1), ends=stageEnds(c);
+  const i=ends.findIndex(e=>f<e);
+  return STAGES[i<0?3:i];
 }
 export function speciesOf(c){ return SPECIES[c.species]||SPECIES.ramtarug; }
 const spriteCache={};

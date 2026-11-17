@@ -31,21 +31,38 @@ export const MOVES = {
   scoldingcall:  { name: "Scolding Call",   type: "Normal", kind: "support",  power: 0,   acc: 0.9,  stamina: 8,  stat: [{ stat: "atk", stages: -1 }], status: [{ id: "mute", chance: 0.2, turns: 3 }] },
   nestfury:      { name: "Nest Fury",       type: "Normal", kind: "physical", power: 90,  acc: 0.9,  stamina: 22, crit: 0.25, stat: [{ stat: "def", stages: -1, self: true }] },
   thousandsongs: { name: "Thousand Songs",  type: "Air",    kind: "elemental", power: 70, acc: 0.95, stamina: 15, status: [{ id: "confusion", chance: 0.3, turns: 3 }] },
+  // Kudzoon
+  vinewhip:       { name: "Vine Whip",          type: "Plant",  kind: "physical", power: 35, acc: 1.0,  stamina: 3 },
+  creepingrunner: { name: "Creeping Runner",    type: "Plant",  kind: "support",  power: 0,  acc: 0.95, stamina: 5,  stat: [{ stat: "spd", stages: -1 }], status: [{ id: "tangle", chance: 0.3, turns: 3 }] },
+  taproot:        { name: "Taproot",            type: "Plant",  kind: "elemental", power: 35, acc: 1.0, stamina: 6,  status: [{ id: "leech", chance: 0.5, turns: 8 }] },
+  leaffold:       { name: "Leaf Fold",          type: "Plant",  kind: "support",  power: 0,  acc: 1.0,  stamina: 6,  stat: [{ stat: "res", stages: 1, self: true }], heal: 0.1 },
+  smother:        { name: "Smother",            type: "Plant",  kind: "elemental", power: 60, acc: 0.95, stamina: 10, status: [{ id: "tangle", chance: 0.3, turns: 4 }] },
+  grapebloom:     { name: "Grape Bloom",        type: "Plant",  kind: "support",  power: 0,  acc: 0.9,  stamina: 8,  status: [{ id: "drowsy", chance: 0.4, turns: 4 }] },
+  blankethills:   { name: "Blanket the Hills",  type: "Plant",  kind: "support",  power: 0,  acc: 1.0,  stamina: 14, field: { id: "overgrown", turns: 5 } },
+  strangle:       { name: "Strangle",           type: "Plant",  kind: "physical", power: 70, acc: 0.95, stamina: 14, bonusVs: "tangle", status: [{ id: "tangle", chance: 0.3, turns: 4 }] },
+  topple:         { name: "Topple",             type: "Normal", kind: "physical", power: 85, acc: 0.85, stamina: 20, status: [{ id: "knocked", chance: 0.15, turns: 1 }] },
+  deepcrown:      { name: "Deep Crown",         type: "Plant",  kind: "support",  power: 0,  acc: 1.0,  stamina: 15, status: [{ id: "deepcrown", chance: 1, turns: 3, self: true }] },
+  woodycrown:     { name: "Woody Crown",        type: "Plant",  kind: "support",  power: 0,  acc: 1.0,  stamina: 15, stat: [{ stat: "def", stages: 2, self: true }, { stat: "res", stages: 2, self: true }], heal: 0.25 },
 };
 for (const [id, m] of Object.entries(MOVES)) m.id = id;
+export const FIELDS = { overgrown: { name: "Overgrown", icon: "🌿", text: "Plant moves +25%, everyone else 20% slower, Tangle lands more often" } };
 
 // What each move does, in a line (for the card and the move buttons)
 const STAT_NAME = { atk: "Attack", def: "Defense", ele: "Elemental", res: "Resistance", spd: "Speed" };
-const SNAME = { poison: "Poison", fear: "Fear", blind: "Blind", knocked: "Knocked down", festering: "Festering", mute: "Mute", confusion: "Confusion" };
+const SNAME = { poison: "Poison", fear: "Fear", blind: "Blind", knocked: "Knocked down", festering: "Festering", mute: "Mute", confusion: "Confusion", tangle: "Tangle", leech: "Leech", drowsy: "Drowsy" };
 export function moveEffectText(m) {
   const parts = [];
   for (const s of m.stat || []) parts.push(`${s.self ? "" : "foe's "}${STAT_NAME[s.stat]} ${s.stages > 0 ? "up" : "down"}`);
   for (const s of m.status || []) {
     if (s.id === "toxichide") parts.push("poisons attackers 30% (10 turns)");
     else if (s.id === "awake") parts.push("can't get drowsy (5 turns)");
+    else if (s.id === "deepcrown") parts.push("for 3 turns survives a knockout with 1 HP and heals 5% a turn");
     else parts.push(`${Math.round(s.chance * 100)}% ${SNAME[s.id] || s.id}${s.id === "knocked" ? "" : ` (${s.turns} turns)`}`);
   }
   if (m.special === "clearOne") parts.push("clears one of its statuses");
+  if (m.heal) parts.push(`heals ${Math.round(m.heal * 100)}%`);
+  if (m.field) parts.push(`overgrows the field (${m.field.turns} turns)`);
+  if (m.bonusVs) parts.unshift(`×1.5 power if the foe has ${SNAME[m.bonusVs] || m.bonusVs}`);
   if (m.special === "borrow") parts.push("uses the last elemental move the foe used");
   if (m.special === "dawnChorus") parts.push("wakes and calms your whole team (clears Drowsy and Fear)");
   if (m.hits > 1) parts.unshift(`hits ${m.hits} times`);

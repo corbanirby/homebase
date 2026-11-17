@@ -57,7 +57,7 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     let { col, row, dcol, drow, age, fullness, hp, habitat, wanderTimer, state: cs, targetId, biteTimer, stageId, path, stall = 0 } = c;
     // Growing up
     age += dtMs;
-    const st = lifeStage({ age, maxAge: c.maxAge });
+    const st = lifeStage({ age, maxAge: c.maxAge, species: c.species });
     if (st.id !== stageId) {
       stageId = st.id;
       newFloats.push({ id: newId(), col, row, text: `${c.name} is now an ${st.label.toLowerCase()}!`, color: "#fde68a", tick });

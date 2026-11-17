@@ -91,7 +91,7 @@ export function wildAt(world, col, row, sp = null) {
   sp = sp || pickSpecies(world, col, row); if (!sp) return null;
   const d = distFromDoor(col, row), L = areaLevel(world, areaKey(col, row));
   // Young ones come in lower than the area's level, old ones a little higher
-  const lvAt = age => Math.max(1, Math.round(L * (age < 0.11 ? 0.6 : age < 0.29 ? 0.8 : age < 0.86 ? 1 : 1.1) * (0.9 + Math.random() * 0.2)));
+  const lvAt = c => Math.max(1, Math.round(L * ({ baby: 0.6, adolescent: 0.8, adult: 1, elder: 1.1 }[lifeStage(c).id]) * (0.9 + Math.random() * 0.2)));
   return makeWild(sp, col, row, lvAt, d < 12);
 }
 export function distFromDoor(col, row) { const { door } = atlanta(); return Math.hypot(col - (door.c + 0.5), row - (door.r + 0.5)); }
@@ -111,8 +111,8 @@ export const BAG_AGING = 0.5;
 export function ageCarried(c, ms, inBag = false) {
   if (c.isEgg) { const e = incubateCarried(c, ms); return e.incubation >= 1 ? hatchEgg(e) : e; }
   // Statuses and stamina run on the same clock: half speed asleep in the bag, normal on the vine
-  if (inBag) { const age = c.age + ms * BAG_AGING; return restoreStamina(tickStatuses({ ...c, age, stageId: lifeStage({ age, maxAge: c.maxAge }).id }, ms, 0.5), ms, 0.5); }
-  const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge });
+  if (inBag) { const age = c.age + ms * BAG_AGING; return restoreStamina(tickStatuses({ ...c, age, stageId: lifeStage({ age, maxAge: c.maxAge, species: c.species }).id }, ms, 0.5), ms, 0.5); }
+  const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge, species: c.species });
   const rate = (c.dna.metabolism ?? 1) / STARVE_MS * VINE_HUNGER, empty = rate > 0 ? c.fullness / rate : Infinity;
   const fullness = Math.max(0, c.fullness - ms * rate);
   const starving = ms > empty ? (c.fullness > 0 ? ms - empty : (c.starving || 0) + ms) : 0;

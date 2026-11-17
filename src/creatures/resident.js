@@ -2,7 +2,7 @@ import { newId } from "../engine/ids.js";
 import { randomDNA } from "./dna.js";
 import { deriveMoves, levelUpMoves, initLearnset, hasLearnset } from "../battle/moves.js";
 import { XP_PER_LEVEL } from "../config.js";
-import { SPECIES, STAGES, lifeStage } from "./species.jsx";
+import { SPECIES, STAGES, lifeStage, stageEnds } from "./species.jsx";
 
 // ─── Creatures that live in your homebase ─────────────────────────────────────
 // Everything here runs on real time: age, hunger and health are in milliseconds
@@ -72,7 +72,7 @@ export function fullnessWord(f) {
 export function nextStageIn(c) {
   const i = STAGES.indexOf(lifeStage(c));
   if (i >= STAGES.length - 1) return null;
-  return { stage: STAGES[i + 1], ms: Math.max(0, STAGES[i].until * c.maxAge - c.age) };
+  return { stage: STAGES[i + 1], ms: Math.max(0, stageEnds(c)[i] * c.maxAge - c.age) };
 }
 
 // A wild creature in the shared world: genes leaning the way its species does,
@@ -85,7 +85,7 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
   if (sp.temper) c.genome.aggression[1] = sp.temper[0] + Math.random() * (sp.temper[1] - sp.temper[0]);
   c.age = c.maxAge * (youngOnly ? 0.02 + Math.random() * 0.24 : 0.02 + Math.random() * 0.9);
   c.stageId = lifeStage(c).id;
-  c.level = typeof level === "function" ? level(c.age / c.maxAge) : level; c.wild = true;
+  c.level = typeof level === "function" ? level(c) : level; c.wild = true;
   c.fullness = 0.7 + Math.random() * 0.3;
   // Species with a move list know what a creature of its level and age would have learned
   return hasLearnset(c) ? initLearnset(c) : c;

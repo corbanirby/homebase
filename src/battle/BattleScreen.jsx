@@ -3,8 +3,8 @@ import { XP_PER_LEVEL } from "../config.js";
 import { lifeStage, speciesOf, spriteImage, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
 import { levelUpMoves, TYPE_COLORS } from "./moves.js";
-import { moveEffectText } from "./movelist.js";
-import { makeBattler, executeBattleMove, endOfRound, aiPickMove, goesFirst, benchState, usableMoves, isPhysical } from "./engine.js";
+import { moveEffectText, FIELDS } from "./movelist.js";
+import { makeBattler, executeBattleMove, endOfRound, aiPickMove, goesFirst, benchState, usableMoves, isPhysical, leechDrain, isTangled } from "./engine.js";
 import { STATUS, toWorld } from "./statuses.js";
 
 // ─── Battle components ────────────────────────────────────────────────────────
@@ -23,8 +23,8 @@ export function BattleSprite({creature,size=90,flipped=false,shake=false}){
 // ♀ pink, ♂ blue, next to the name
 const SexMark=({sex})=>sex==="F"?<span style={{color:"#f9a8d4",marginLeft:4}} aria-label="female">♀</span>:sex==="M"?<span style={{color:"#93c5fd",marginLeft:4}} aria-label="male">♂</span>:null;
 export function HpBar({current,max,label,level,sex=null}){
-  const pct=Math.max(0,current/max);
-  const col=pct>0.5?"#4ade80":pct>0.25?"#facc15":"#f87171";
+  const pct=Math.max(0,Math.min(1,current/max)), over=current>max;
+  const col=over?"#a3e635":pct>0.5?"#4ade80":pct>0.25?"#facc15":"#f87171";
   return(
     <div style={{background:"#1a1a2e",border:"1px solid #2a2a4a",borderRadius:6,padding:"6px 10px",minWidth:150}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
@@ -34,7 +34,7 @@ export function HpBar({current,max,label,level,sex=null}){
       <div style={{background:"#0f0f1e",borderRadius:3,height:8,overflow:"hidden",marginBottom:3}}>
         <div style={{width:`${pct*100}%`,height:"100%",background:col,borderRadius:3,transition:"width 0.3s"}}/>
       </div>
-      <div style={{color:"#64748b",fontSize:10,textAlign:"right"}}>{current}/{max}</div>
+      <div style={{color:over?"#a3e635":"#64748b",fontSize:10,textAlign:"right"}}>{current}/{max}{over?" 🌿":""}</div>
     </div>
   );
 }
@@ -79,6 +79,9 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   const benchRef=useRef(new Map());
   // How often each of your creatures used each move (mastery)
   const usesRef=useRef({});
+  // The battlefield (Blanket the Hills overgrows it for a few rounds)
+  const fieldRef=useRef(null); const[field,setFieldState]=useState(null);
+  const setField=f=>{ fieldRef.current=f; setFieldState(f); };
   // Statuses Dawn Chorus has cleared from the whole team
   const curedRef=useRef(new Set());
   // Single gate for every player action: blocks double taps before React re-renders
@@ -137,7 +140,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   // What the battle did to everyone you carry: statuses and stamina going back into the world
   function battleResults(active){
     const updates={};
-    const put=b=>{ updates[b.id]={statuses:toWorld(b.fx),stamina:b.maxSta?b.stamina/b.maxSta:1,fatigued:!!b.fatigued,hp:b.battleHp/b.maxHp}; };
+    const put=b=>{ updates[b.id]={statuses:toWorld(b.fx),stamina:b.maxSta?b.stamina/b.maxSta:1,fatigued:!!b.fatigued,hp:Math.min(1,b.battleHp/b.maxHp)}; };
     if(active) put(active);
     for(const c of battleInventory||[]){
       if(!c||c.id===active?.id||!benchRef.current.has(c.id)) continue;
@@ -159,7 +162,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       const lvMsg=lu?" Level UP → Lv"+nl+"!":"";
       setLog(l=>{const m=[...l,"Won! +"+xpEach+" XP"+xpMsg+"."+lvMsg];for(const n of up.names) m.push(`${fp.label} learned ${n}!`);return m;});
       setPhase("end");
-      setTimeout(()=>onEnd("win",{...fp,xp:nxp,level:Math.max(fp.level||1,nl),moves:up.moves,learned:up.learned,hp:fp.battleHp/fp.maxHp},participantIds,xpEach,extra),lu?1800:1200);
+      setTimeout(()=>onEnd("win",{...fp,xp:nxp,level:Math.max(fp.level||1,nl),moves:up.moves,learned:up.learned,hp:Math.min(1,fp.battleHp/fp.maxHp)},participantIds,xpEach,extra),lu?1800:1200);
     } else {
       setLog(l=>[...l,"Your creature fainted..."]);
       setPhase("end");
@@ -187,11 +190,18 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   // The end of a round: poison, statuses counting down, stamina for the ones that rested
   function queueRoundEnd(items,p,e){
     roundRef.current++;
+    const start=items.length;
+    // Leech first (the leecher drinks), then each side's own end of round, then the field
+    const l1=leechDrain(p,e); p=l1.victim; e=l1.other;
+    const l2=leechDrain(e,p); e=l2.victim; p=l2.other;
+    for(const m of [...l1.msgs,...l2.msgs]) items.push({msg:m});
     const rp=endOfRound(p), re=endOfRound(e);
+    const f=fieldRef.current;
+    if(f){ const t=f.turns-1; if(t<=0){ items.push({msg:"The vines on the ground wither back.",applyState:()=>setField(null)}); fieldRef.current=null; } else setField({...f,turns:t}); }
     for(const m of rp.msgs) items.push({msg:m});
     for(const m of re.msgs) items.push({msg:m});
     const apply=()=>{ setPlayer(rp.b); playerRef.current=rp.b; setEnemy(re.b); enemyRef.current=re.b; };
-    if(rp.msgs.length||re.msgs.length){ const i=items.length-rp.msgs.length-re.msgs.length; items[i]={...items[i],applyState:apply}; }
+    if(items.length>start){ const first=items[start], prev=first.applyState; items[start]={...first,applyState:()=>{ if(prev) prev(); apply(); }}; }
     else apply();
     return {p:rp.b,e:re.b};
   }
@@ -199,7 +209,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   // The foe's action. `endsRound` when it's the second action of the round.
   function doEnemyTurn(currentEnemy, currentPlayer, extraMsgs=[], then=null, endsRound=true) {
     const em=aiPickMove(currentEnemy,currentPlayer);
-    const r=executeBattleMove(currentEnemy,currentPlayer,em);
+    const r=executeBattleMove(currentEnemy,currentPlayer,em,fieldRef.current);
+    if(r.field!==fieldRef.current) setField(r.field);
     const items=extraMsgs.map(m=>typeof m==='string'?{msg:m}:m);
     queueMove(items,r,currentPlayer,false);
     let p=r.newDefender, e=r.newAttacker;
@@ -213,7 +224,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   function handleMove(move){
     if(!claimTurn())return;
     const u=usesRef.current[player.id]||(usesRef.current[player.id]={}); u[move.id]=(u[move.id]||0)+1;
-    if(!goesFirst(player,enemy)){
+    if(!goesFirst(player,enemy,fieldRef.current)){
       doEnemyTurn(enemy,player,[{msg:`The wild ${speciesOf(wildCreature).name} is quicker!`}],()=>{
         const p=playerRef.current, e=enemyRef.current;
         if(p.battleHp<=0||e.battleHp<=0){ settleTurn(); return; }
@@ -224,7 +235,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     playerAct(move,player,enemy,true);
   }
   function playerAct(move,player,enemy,thenFoe){
-    const r1=executeBattleMove(player,enemy,move);
+    const r1=executeBattleMove(player,enemy,move,fieldRef.current);
+    if(r1.field!==fieldRef.current) setField(r1.field);
     const items=[];
     queueMove(items,r1,enemy,true);
     let p=r1.newAttacker, e=r1.newDefender;
@@ -247,7 +259,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     if(Math.random()<ch){
       const e=enemyRef.current;
       // It comes home with whatever it has (poison and all)
-      const caught={...wildCreature,hp:e.battleHp/e.maxHp,level:e.level,statuses:toWorld(e.fx),stamina:e.stamina/e.maxSta,fatigued:!!e.fatigued};
+      const caught={...wildCreature,hp:Math.min(1,e.battleHp/e.maxHp),level:e.level,statuses:toWorld(e.fx),stamina:e.stamina/e.maxSta,fatigued:!!e.fatigued};
       const mine={battleHp:player.battleHp,maxHp:player.maxHp};
       const extra=battleResults(playerRef.current);
       afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine,pod.id,extra),400); };
@@ -263,7 +275,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   function sendIn(idx){
     const out=playerRef.current;
     benchRef.current.set(out.id,{...benchState(out),at:roundRef.current});
-    onSaveBattleHp(0, out.battleHp, out.maxHp);
+    // Growth above its normal health doesn't come along to the bench
+    onSaveBattleHp(0, Math.min(out.battleHp,out.maxHp), out.maxHp);
     onSwapToFront(idx);
     const incoming=battleInventory[idx];
     const {b}=benchFor(incoming);
@@ -300,7 +313,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
             <BattleSprite creature={wildCreature} size={120} flipped={true} shake={shakeE}/>
           </div>
         </div>
-        <div style={{textAlign:"center",color:"rgba(255,255,255,0.07)",fontSize:26,letterSpacing:8}}>— vs —</div>
+        {field&&FIELDS[field.id]?<div style={{textAlign:"center",color:"#a3e635",fontSize:12}} title={FIELDS[field.id].text}>{FIELDS[field.id].icon} {FIELDS[field.id].name} · {field.turns} {field.turns===1?"turn":"turns"}<div style={{fontSize:10,color:"#65a30d"}}>{FIELDS[field.id].text}</div></div>
+          :<div style={{textAlign:"center",color:"rgba(255,255,255,0.07)",fontSize:26,letterSpacing:8}}>— vs —</div>}
         <div style={{display:"flex",justifyContent:"flex-start",alignItems:"flex-end",gap:12}}>
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
             <StatusBadges b={player}/>
@@ -354,13 +368,13 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                 style={{...btnStyle,background:"rgba(251,191,36,0.15)",border:"1.5px solid rgba(251,191,36,0.5)",borderRadius:8,padding:"7px 4px",color:"#fbbf24",fontSize:11,opacity:canCatch&&pods.length?1:0.4}}>
                 🫛 OPEN POD<br/><span style={{fontSize:9,opacity:0.8}}>{!canCatch?"(bag full)":!pods.length?"(no empty pods)":`(${pods.length} empty)`}</span>
               </button>
-              <button onClick={()=>setShowSwap(true)} onContextMenu={e=>e.preventDefault()}
-                style={{...btnStyle,background:"rgba(96,165,250,0.15)",border:"1.5px solid rgba(96,165,250,0.4)",borderRadius:8,padding:"7px 4px",color:"#60a5fa",fontSize:11}}>
-                🔄 SWAP<br/><span style={{fontSize:9,opacity:0.8}}>(costs turn)</span>
+              <button onClick={()=>setShowSwap(true)} disabled={isTangled(player)} onContextMenu={e=>e.preventDefault()}
+                style={{...btnStyle,background:"rgba(96,165,250,0.15)",border:"1.5px solid rgba(96,165,250,0.4)",borderRadius:8,padding:"7px 4px",color:"#60a5fa",fontSize:11,opacity:isTangled(player)?0.4:1}}>
+                🔄 SWAP<br/><span style={{fontSize:9,opacity:0.8}}>{isTangled(player)?"(tangled)":"(costs turn)"}</span>
               </button>
-              <button onClick={fleeBattle} onContextMenu={e=>e.preventDefault()}
-                style={{...btnStyle,background:"rgba(100,116,139,0.15)",border:"1.5px solid rgba(100,116,139,0.4)",borderRadius:8,padding:"7px 4px",color:"#94a3b8",fontSize:11}}>
-                🏃 FLEE
+              <button onClick={fleeBattle} disabled={isTangled(player)} onContextMenu={e=>e.preventDefault()}
+                style={{...btnStyle,background:"rgba(100,116,139,0.15)",border:"1.5px solid rgba(100,116,139,0.4)",borderRadius:8,padding:"7px 4px",color:"#94a3b8",fontSize:11,opacity:isTangled(player)?0.4:1}}>
+                🏃 FLEE{isTangled(player)&&<><br/><span style={{fontSize:9}}>(tangled)</span></>}
               </button>
             </div>
           </>

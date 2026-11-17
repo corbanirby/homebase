@@ -23,6 +23,16 @@ export const STATUS = {
   confusion: { name: "Confusion",    icon: "💫", color: "#e879f9", stack: 3, lingers: true },
   // Dawn Chorus: can't become drowsy
   awake:     { name: "Wide awake",   icon: "🌅", color: "#fcd34d", stack: 1, extend: true, lingers: false, self: true },
+  // Can't flee or swap out; Speed −20/−35%; at 3 it's Bound: can't dodge or use physical moves
+  tangle:    { name: "Tangle",       icon: "🌿", color: "#65a30d", stack: 3, lingers: true },
+  // Loses 3% of its max health a round to the creature that leeched it, while that one is still fighting
+  leech:     { name: "Leech",        icon: "🩸", color: "#16a34a", stack: 1, extend: true, lingers: false },
+  // Speed −20%; falls asleep after 2 rounds (1 at level 2, at once at level 3)
+  drowsy:    { name: "Drowsy",       icon: "😪", color: "#a78bfa", stack: 3, lingers: true },
+  // Loses its actions until it wakes (or is hit)
+  asleep:    { name: "Asleep",       icon: "💤", color: "#818cf8", stack: 1, extend: false, lingers: false },
+  // Deep Crown: survives one knockout with 1 HP, and heals 5% a round
+  deepcrown: { name: "Deep crown",   icon: "🌱", color: "#84cc16", stack: 1, extend: false, lingers: false, self: true },
   // Toxic Hide's coat: anything that hits it with a physical move may be poisoned
   toxichide: { name: "Toxic hide",   icon: "🛡️", color: "#c084fc", stack: 1, extend: true, lingers: false, self: true },
 };
@@ -34,19 +44,19 @@ export const level = (fx, id) => (fx || []).filter(f => f.id === id).length;
 export const has = (fx, id) => (fx || []).some(f => f.id === id);
 
 // Add a status from a move: a new copy (stacking), more turns on the end (extend), or nothing
-export function addStatus(fx, id, turns) {
+export function addStatus(fx, id, turns, extra = {}) {
   const def = STATUS[id], list = [...(fx || [])], mine = list.filter(f => f.id === id);
   if (!def) return { fx: list, added: false };
   if (def.stack > 1) {
     if (mine.length >= def.stack) { const oldest = mine.reduce((a, b) => (a.turns <= b.turns ? a : b)); list.splice(list.indexOf(oldest), 1); }
-    list.push({ id, turns });
+    list.push({ id, turns, ...extra });
     return { fx: list, added: true, level: Math.min(def.stack, mine.length + 1) };
   }
   if (mine.length) {
     if (!def.extend) return { fx: list, added: false };
     return { fx: list.map(f => (f === mine[0] ? { ...f, turns: f.turns + turns } : f)), added: true, level: 1 };
   }
-  list.push({ id, turns });
+  list.push({ id, turns, ...extra });
   return { fx: list, added: true, level: 1 };
 }
 // One turn passes: every copy counts down; those that run out are removed

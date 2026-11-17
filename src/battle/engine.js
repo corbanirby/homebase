@@ -87,11 +87,17 @@ export function makeBattler(c, biome = null, carry = null) {
 }
 // What a battler takes to the bench (and back)
 export const benchState = b => ({ statMods: b.statMods, fx: b.fx, stamina: b.stamina, fatigued: b.fatigued, kdGuard: b.kdGuard, status: b.status });
-const effSpd = b => applyStatMod(b.spd, b.statMods?.spd || 0) * (b.fatigued ? 0.8 : 1);
+// Speed right now: stages, tiredness, Tangle (−20/−35%), Drowsy, and an overgrown field slowing non-Plant creatures
+const TANGLE_SPD = [1, 0.8, 0.65, 0.65];
+const effSpd = (b, field = null) => applyStatMod(b.spd, b.statMods?.spd || 0) * (b.fatigued ? 0.8 : 1)
+  * TANGLE_SPD[Math.min(3, level(b.fx, "tangle"))] * (has(b.fx, "drowsy") ? 0.8 : 1)
+  * (field?.id === "overgrown" && !(b.types || []).includes("Plant") ? 0.8 : 1);
 // Who acts first this turn: the faster one, with a little luck
-export function goesFirst(a, b) {
-  return effSpd(a) * (0.9 + Math.random() * 0.2) >= effSpd(b);
+export function goesFirst(a, b, field = null) {
+  return effSpd(a, field) * (0.9 + Math.random() * 0.2) >= effSpd(b, field);
 }
+export const isBound = b => level(b.fx, "tangle") >= 3;
+export const isTangled = b => has(b.fx, "tangle");
 // Physical moves use Attack against Defense; elemental ones Elemental against Resistance.
 // Moves from before stage 9 have no kind: Normal ones are physical, the rest elemental.
 export const isPhysical = m => m.kind ? m.kind === "physical" : moveType(m) === "Normal";
@@ -109,19 +115,41 @@ function changeStage(b, stat, stages, msgs) {
   msgs.push(`${b.label}'s ${STAT_NAME[stat]} ${stages > 0 ? "rose" : "fell"}${Math.abs(stages) > 1 ? " sharply" : ""}!`);
 }
 const STATUS_ON = { poison:"is poisoned", fear:"is afraid", blind:"can't see well", knocked:"is knocked down", festering:"has a festering wound", toxichide:"is coated in toxic slime",
-  mute:"can't make a sound", confusion:"is confused", awake:"is wide awake" };
+  mute:"can't make a sound", confusion:"is confused", awake:"is wide awake", tangle:"is tangled in vines", leech:"has a vine sunk into it",
+  drowsy:"is getting drowsy", asleep:"falls asleep", deepcrown:"sinks its roots deep" };
 // Elemental moves: the stage 9 kind, or (older moves) any typed move that isn't Normal
 export const isElemental = m => m.power > 0 && !isPhysical(m);
 // Statuses a type can't get (Poison creatures can't be poisoned; more as species get their moves)
 const IMMUNE = { poison: "Poison" };
-function giveStatus(b, id, turns, msgs) {
+function giveStatus(b, id, turns, msgs, extra) {
   if (id === "knocked" && (b.kdGuard > 0 || has(b.fx, "knocked"))) return;
+  if ((id === "drowsy" || id === "asleep") && has(b.fx, "awake")) { msgs.push(`${b.label} is wide awake!`); return; }
+  if (id === "drowsy" && has(b.fx, "asleep")) return;
   if (IMMUNE[id] && (b.types || []).includes(IMMUNE[id])) { msgs.push(`${b.label} can't be ${id === "poison" ? "poisoned" : "affected"}!`); return; }
-  const r = addStatus(b.fx, id, turns);
+  const r = addStatus(b.fx, id, turns, extra);
   if (!r.added) return;
   b.fx = r.fx;
   msgs.push(`${b.label} ${STATUS_ON[id] || "is affected"}${r.level > 1 ? ` (${statusText(id, r.level).toLowerCase()})` : ""}!`);
+  if (id === "tangle" && r.level >= 3) msgs.push(`${b.label} is bound tight!`);
+  // Drowsy 3: asleep at once
+  if (id === "drowsy" && r.level >= 3) fallAsleep(b, msgs);
 }
+function fallAsleep(b, msgs) {
+  b.fx = b.fx.filter(f => f.id !== "drowsy"); b.drowsyRounds = 0;
+  b.fx.push({ id: "asleep", turns: 1 + Math.floor(Math.random() * 2) });
+  msgs.push(`${b.label} falls asleep!`);
+}
+// A hit that would knock it out: Deep Crown holds it at 1 HP (once)
+function holdOn(b, msgs) {
+  if (b.battleHp > 0 || !has(b.fx, "deepcrown")) return;
+  b.battleHp = 1; b.fx = b.fx.filter(f => f.id !== "deepcrown");
+  msgs.push(`${b.label} holds on by its roots!`);
+}
+const heal = (b, frac, msgs) => {
+  if (has(b.fx, "festering")) { msgs.push(`${b.label}'s festering wound won't heal!`); return; }
+  const h = Math.max(1, Math.floor(b.maxHp * frac)); b.battleHp = Math.min(Math.max(b.maxHp, b.battleHp), b.battleHp + h);
+  msgs.push(`${b.label} recovers ${h} HP.`);
+};
 // Spend stamina, with a word when it's running low or gone
 function spendStamina(b, cost, msgs) {
   if (!cost) return;
@@ -132,13 +160,17 @@ function spendStamina(b, cost, msgs) {
   else if (before > STAMINA_TIRING && after <= STAMINA_TIRING) msgs.push(`${b.label} is tiring.`);
 }
 export const CRIT_CHANCE = 0.05, CRIT_MULT = 1.5;
+// Damage grows with the attacker's level the way health does, so a fight takes about as many hits
+// at level 50 as at level 5 (health is 18 + 8 a level; level 5 is the reference)
+const levelScale = b => (18 + 8 * (b.level || 1)) / 58;
 
-export function executeBattleMove(atk,def,move) {
+export function executeBattleMove(atk,def,move,field=null) {
   const msgs=[];
   let ac={...atk,statMods:{...atk.statMods},fx:[...(atk.fx||[])],teamCure:null}, dc={...def,statMods:{...def.statMods},fx:[...(def.fx||[])]};
-  const done=()=>({newAttacker:ac,newDefender:dc,msgs});
+  const done=()=>({newAttacker:ac,newDefender:dc,msgs,field});
   // Losing the turn, in order: knocked down, paralysis, frozen (older moves), fear
   if (has(ac.fx,"knocked")) { ac.fx=ac.fx.filter(f=>f.id!=="knocked"); ac.kdGuard=2; msgs.push(`${ac.label} is getting back up!`); return done(); }
+  if (has(ac.fx,"asleep")) { msgs.push(`${ac.label} is fast asleep.`); return done(); }
   if (ac.status==="paralyze"&&Math.random()<0.25){msgs.push("Paralyzed! Can't move!");return done();}
   if (ac.status==="freeze"&&Math.random()<0.5){msgs.push("Frozen solid!");return done();}
   const fearLv=level(ac.fx,"fear");
@@ -146,7 +178,7 @@ export function executeBattleMove(atk,def,move) {
   // Confused: it may hurt itself instead
   const cfLv=level(ac.fx,"confusion");
   if (cfLv && Math.random()<CONFUSE_CHANCE[Math.min(3,cfLv)]) {
-    const d=Math.max(1,Math.floor(applyStatMod(ac.atk,ac.statMods.atk||0)/Math.max(1,applyStatMod(ac.def,ac.statMods.def||0))*40*0.18*(0.85+Math.random()*0.15)));
+    const d=Math.max(1,Math.floor(applyStatMod(ac.atk,ac.statMods.atk||0)/Math.max(1,applyStatMod(ac.def,ac.statMods.def||0))*40*0.18*levelScale(ac)*(0.85+Math.random()*0.15)));
     ac.battleHp=Math.max(0,ac.battleHp-d); msgs.push(`${ac.label} is confused and hurts itself for ${d}!`); return done();
   }
   // A worn-out creature can only manage light moves
@@ -160,6 +192,7 @@ export function executeBattleMove(atk,def,move) {
     msgs.push(`It sings back ${src.name}!`);
     move={...src,stamina:0};
   }
+  if (isPhysical(move) && move.power>0 && isBound(ac)) { msgs.push(`${ac.label} is bound too tight to move its body!`); return done(); }
   if (isElemental(move)) {
     if (has(ac.fx,"mute")) { msgs.push(`${ac.label} can't make a sound!`); return done(); }
     ac.lastEle=move;
@@ -172,8 +205,8 @@ export function executeBattleMove(atk,def,move) {
   if (phys) acc*=BLIND_ACC[Math.min(3,level(ac.fx,"blind"))];
   if (Math.random()>acc){msgs.push("Missed!");return done();}
   // A much faster target sometimes dodges (up to 10%)
-  if (move.power>0) {
-    const as=effSpd(ac), ds=effSpd(dc);
+  if (move.power>0 && !isBound(dc)) {
+    const as=effSpd(ac,field), ds=effSpd(dc,field);
     if (Math.random() < Math.min(0.1, Math.max(0, (ds - as) / (ds + as) * 0.3))) { msgs.push("It dodged!"); return done(); }
   }
   // Older moves' effects
@@ -196,13 +229,17 @@ export function executeBattleMove(atk,def,move) {
       let ea=applyStatMod(phys?ac.atk:(ac.ele??ac.atk),aMod), ed=applyStatMod(phys?dc.def:(dc.res??dc.def),dMod);
       if (ac.fatigued) ea*=0.8;
       if (!phys&&fearLv) ea*=0.75;
-      const power=move.power*(1+0.1*tier);
-      let dmg=(ea/Math.max(1,ed))*power*0.18*k*stab*(0.85+Math.random()*0.15);
+      let power=move.power*(1+0.1*tier);
+      if (field?.id==="overgrown" && mt==="Plant") power*=1.25;
+      if (move.bonusVs && has(dc.fx,move.bonusVs)) power*=1.5;
+      let dmg=(ea/Math.max(1,ed))*power*0.18*levelScale(ac)*k*stab*(0.85+Math.random()*0.15);
       if (crit) dmg*=CRIT_MULT;
       if (has(dc.fx,"knocked")) dmg*=1.25;
       dmg=Math.max(1,Math.floor(dmg));
       dc.battleHp=Math.max(0,dc.battleHp-dmg); msgs.push("Hit for "+dmg+"!"); landed++;
       if (crit) msgs.push("A critical hit!");
+      holdOn(dc,msgs);
+      if (has(dc.fx,"asleep") && dc.battleHp>0) { dc.fx=dc.fx.filter(f=>f.id!=="asleep"); msgs.push(`${dc.label} wakes up!`); }
     }
     if (hits>1) msgs.push(`Hit ${landed} ${landed===1?"time":"times"}!`);
     if (k>1) msgs.push(k>=4?"It's devastating!":"It's super effective!");
@@ -215,8 +252,11 @@ export function executeBattleMove(atk,def,move) {
   for (const st of move.status||[]) {
     const target=st.self?ac:dc;
     if (!st.self && target.battleHp<=0) continue;
-    if (Math.random() < st.chance) giveStatus(target, st.id, st.turns, msgs);
+    const ch=st.chance*(st.id==="tangle"&&field?.id==="overgrown"?1.5:1);
+    if (Math.random() < ch) giveStatus(target, st.id, st.turns, msgs, st.id==="leech"?{src:ac.id}:undefined);
   }
+  if (move.heal) heal(ac, move.heal, msgs);
+  if (move.field) { field={...move.field}; msgs.push("Vines blanket the ground!"); }
   // Dawn Chorus: wakes and calms it, and the rest of your team hears it too
   if (move.special==="dawnChorus") {
     const before=ac.fx.length; ac.fx=ac.fx.filter(f=>!["fear","drowsy","asleep"].includes(f.id));
@@ -237,13 +277,28 @@ export function executeBattleMove(atk,def,move) {
 }
 // End of a round, for each creature in the fight: poison hurts, every status counts down a turn,
 // and a creature that didn't attack gets a little stamina back
+// Leech: the leecher (if it's the one fighting it now) drains 3% of the victim's max health a round
+export function leechDrain(victim, other) {
+  if (victim.battleHp<=0 || other.battleHp<=0 || !victim.fx?.some(f=>f.id==="leech"&&f.src===other.id)) return {victim,other,msgs:[]};
+  const d=Math.max(1,Math.floor(victim.maxHp*0.03)), v={...victim,battleHp:Math.max(0,victim.battleHp-d)}, msgs=[`🩸 ${other.label} drains ${d} HP from ${victim.label}`];
+  let o=other; if (!has(other.fx,"festering")) o={...other,battleHp:Math.min(Math.max(other.maxHp,other.battleHp),other.battleHp+d)};
+  return {victim:v,other:o,msgs};
+}
 const ENDED = { poison:"is no longer poisoned", fear:"is no longer afraid", blind:"can see again", festering:"'s wound is closing", toxichide:"'s toxic coat wears off",
-  mute:"finds its voice again", confusion:"is no longer confused", awake:"settles down" };
+  mute:"finds its voice again", confusion:"is no longer confused", awake:"settles down",
+  tangle:"pulls free of the vines", leech:"pulls the vine out", drowsy:"shakes off the drowsiness", asleep:"wakes up", deepcrown:"'s roots loosen" };
 export function endOfRound(b0) {
   const b={...b0,fx:[...(b0.fx||[])]}, msgs=[];
   if (b.battleHp<=0) return {b,msgs};
   const pz=level(b.fx,"poison");
-  if (pz) { const d=Math.max(1,Math.floor(b.maxHp*0.02*pz)); b.battleHp=Math.max(0,b.battleHp-d); msgs.push(`☠️ ${b.label} takes ${d} from poison`); }
+  if (pz) { const d=Math.max(1,Math.floor(b.maxHp*0.02*pz)); b.battleHp=Math.max(0,b.battleHp-d); msgs.push(`☠️ ${b.label} takes ${d} from poison`); holdOn(b,msgs); }
+  // Deep Crown heals from the roots
+  if (has(b.fx,"deepcrown") && b.battleHp>0 && !has(b.fx,"festering")) { const h=Math.max(1,Math.floor(b.maxHp*0.05)); b.battleHp=Math.min(Math.max(b.maxHp,b.battleHp),b.battleHp+h); msgs.push(`🌱 ${b.label} draws ${h} HP from its roots`); }
+  // A Foot a Day: it keeps growing while it stays in (6% of its current health, no cap)
+  if (speciesOf(b).trait==="footADay" && b.battleHp>0 && !has(b.fx,"festering")) { const gr=Math.max(1,Math.round(b.battleHp*0.06)); b.battleHp+=gr; msgs.push(`🌿 ${b.label} grows (+${gr} HP)`); }
+  // Drowsy turns into sleep
+  const dz=level(b.fx,"drowsy");
+  if (dz) { b.drowsyRounds=(b.drowsyRounds||0)+1; if (b.drowsyRounds>=[2,1,0][Math.min(3,dz)-1]) fallAsleep(b,msgs); } else b.drowsyRounds=0;
   if (b.status==="burn"||b.status==="poison") { const d=Math.max(1,Math.floor(b.maxHp*0.0625)); b.battleHp=Math.max(0,b.battleHp-d); msgs.push((b.status==="burn"?"🔥":"☠️")+" "+d+" from "+b.status); }
   // Knocked down lasts until it next tries to act
   const kd=b.fx.filter(f=>f.id==="knocked"), t=tickTurn(b.fx.filter(f=>f.id!=="knocked"));
@@ -263,6 +318,7 @@ export function applyEndOfTurn(b) { const r=endOfRound(b); return {b:r.b,msg:r.m
 export function usableMoves(b) {
   let mvs=b.moves||[];
   if (has(b.fx,"mute")) { const loud=mvs.filter(m=>!isElemental(m)); if (loud.length) mvs=loud; }
+  if (isBound(b)) { const still=mvs.filter(m=>!(isPhysical(m)&&m.power>0)); if (still.length) mvs=still; }
   if (!b.fatigued) return mvs;
   const light=mvs.filter(isLight);
   return light.length?light:[...mvs].sort((a,c)=>staminaCost(a)-staminaCost(c)).slice(0,1);
