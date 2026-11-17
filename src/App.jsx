@@ -3,7 +3,7 @@ import { TICK_MS, XP_PER_LEVEL } from "./config.js";
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
-import { makeBattler } from "./battle/engine.js";
+import { makeBattler, executeBattleMove, endOfRound, aiPickMove } from "./battle/engine.js";
 import { isPassable } from "./world/tiles.js";
 import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./world/land.js";
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
@@ -166,7 +166,7 @@ export default function Homebase(){
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0});
   // Test hook: with ?debug in the address, automated tests can steer and read the world
-  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots,moveById}; },[]);
+  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots,moveById,engine:{makeBattler,executeBattleMove,endOfRound,aiPickMove}}; },[]);
 
   const[saveInfo,setSaveInfo]=useState(()=>readSave());
   const[screen,setScreen]=useState("title"); // title | game
@@ -466,6 +466,7 @@ export default function Homebase(){
   const applyBattleResults=(c,extra)=>{
     if(!extra) return c;
     const u=extra.updates?.[c.id];
+    if(!u&&extra.cured?.length) c={...c,statuses:(c.statuses||[]).filter(x=>!extra.cured.includes(x.id))};
     let n=u?{...c,statuses:u.statuses,stamina:u.stamina,fatigued:u.fatigued,hp:u.hp??c.hp}:restoreStamina(tickStatuses(c,(extra.rounds||0)*TURN_MS,1),(extra.rounds||0)*TURN_MS,1);
     const uses=extra.uses?.[c.id];
     if(uses){ const m={...(n.mastery||{})}; for(const[k,v] of Object.entries(uses)) m[k]=(m[k]||0)+v; n={...n,mastery:m}; }

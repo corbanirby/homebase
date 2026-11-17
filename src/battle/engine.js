@@ -1,5 +1,5 @@
 import { deriveMoves, staminaCost, isLight, masteryTier } from "./moves.js";
-import { STATUS, addStatus, tickTurn, level, has, toBattle, maxStamina, FEAR_CHANCE, BLIND_ACC, STAMINA_TIRING, STAMINA_BACK, statusText } from "./statuses.js";
+import { STATUS, addStatus, tickTurn, level, has, toBattle, maxStamina, FEAR_CHANCE, BLIND_ACC, CONFUSE_CHANCE, STAMINA_TIRING, STAMINA_BACK, statusText } from "./statuses.js";
 import { lifeStage, speciesOf } from "../creatures/species.jsx";
 
 // ─── Type chart (from the design doc's 13-type table, attacking side) ─────────
@@ -108,7 +108,10 @@ function changeStage(b, stat, stages, msgs) {
   b.statMods[stat] = next;
   msgs.push(`${b.label}'s ${STAT_NAME[stat]} ${stages > 0 ? "rose" : "fell"}${Math.abs(stages) > 1 ? " sharply" : ""}!`);
 }
-const STATUS_ON = { poison:"is poisoned", fear:"is afraid", blind:"can't see well", knocked:"is knocked down", festering:"has a festering wound", toxichide:"is coated in toxic slime" };
+const STATUS_ON = { poison:"is poisoned", fear:"is afraid", blind:"can't see well", knocked:"is knocked down", festering:"has a festering wound", toxichide:"is coated in toxic slime",
+  mute:"can't make a sound", confusion:"is confused", awake:"is wide awake" };
+// Elemental moves: the stage 9 kind, or (older moves) any typed move that isn't Normal
+export const isElemental = m => m.power > 0 && !isPhysical(m);
 // Statuses a type can't get (Poison creatures can't be poisoned; more as species get their moves)
 const IMMUNE = { poison: "Poison" };
 function giveStatus(b, id, turns, msgs) {
@@ -132,7 +135,7 @@ export const CRIT_CHANCE = 0.05, CRIT_MULT = 1.5;
 
 export function executeBattleMove(atk,def,move) {
   const msgs=[];
-  let ac={...atk,statMods:{...atk.statMods},fx:[...(atk.fx||[])]}, dc={...def,statMods:{...def.statMods},fx:[...(def.fx||[])]};
+  let ac={...atk,statMods:{...atk.statMods},fx:[...(atk.fx||[])],teamCure:null}, dc={...def,statMods:{...def.statMods},fx:[...(def.fx||[])]};
   const done=()=>({newAttacker:ac,newDefender:dc,msgs});
   // Losing the turn, in order: knocked down, paralysis, frozen (older moves), fear
   if (has(ac.fx,"knocked")) { ac.fx=ac.fx.filter(f=>f.id!=="knocked"); ac.kdGuard=2; msgs.push(`${ac.label} is getting back up!`); return done(); }
@@ -140,9 +143,27 @@ export function executeBattleMove(atk,def,move) {
   if (ac.status==="freeze"&&Math.random()<0.5){msgs.push("Frozen solid!");return done();}
   const fearLv=level(ac.fx,"fear");
   if (fearLv && Math.random()<FEAR_CHANCE[Math.min(3,fearLv)]) { msgs.push(`${ac.label} hesitates in fear!`); return done(); }
+  // Confused: it may hurt itself instead
+  const cfLv=level(ac.fx,"confusion");
+  if (cfLv && Math.random()<CONFUSE_CHANCE[Math.min(3,cfLv)]) {
+    const d=Math.max(1,Math.floor(applyStatMod(ac.atk,ac.statMods.atk||0)/Math.max(1,applyStatMod(ac.def,ac.statMods.def||0))*40*0.18*(0.85+Math.random()*0.15)));
+    ac.battleHp=Math.max(0,ac.battleHp-d); msgs.push(`${ac.label} is confused and hurts itself for ${d}!`); return done();
+  }
   // A worn-out creature can only manage light moves
   if (ac.fatigued && !isLight(move)) { const light=[...(ac.moves||[])].filter(isLight).sort((a,b)=>staminaCost(a)-staminaCost(b))[0]; if (light) move=light; }
   msgs.push(`${ac.label} used ${move.name}!`);
+  // Borrowed Song: sings back the last elemental move the foe used, with its own Elemental
+  if (move.special==="borrow") {
+    spendStamina(ac, staminaCost(move), msgs);
+    const src=dc.lastEle;
+    if (!src) { msgs.push("But there's no song to borrow."); return done(); }
+    msgs.push(`It sings back ${src.name}!`);
+    move={...src,stamina:0};
+  }
+  if (isElemental(move)) {
+    if (has(ac.fx,"mute")) { msgs.push(`${ac.label} can't make a sound!`); return done(); }
+    ac.lastEle=move;
+  }
   const phys=isPhysical(move), tier=masteryTier(ac.mastery?.[move.id]||0);
   spendStamina(ac, staminaCost(move), msgs);
   if (move.power>0) ac.attacked=true;
@@ -164,22 +185,26 @@ export function executeBattleMove(atk,def,move) {
   if (move.power>0) {
     const mt=moveType(move), k=typeMultiplier(mt,dc.types);
     if (k===0) { msgs.push("It has no effect…"); return done(); }
-    const stab=(ac.types||[]).includes(mt)?SAME_TYPE_BONUS:1;
-    const crit=Math.random() < (move.crit ?? CRIT_CHANCE) * (has(dc.fx,"knocked")?2:1);
-    // A critical hit ignores the target's boosts and the attacker's own drops
-    const aKey=phys?"atk":"ele", dKey=phys?"def":"res";
-    let aMod=ac.statMods[aKey]||0, dMod=dc.statMods[dKey]||0;
-    if (crit) { aMod=Math.max(0,aMod); dMod=Math.min(0,dMod); }
-    let ea=applyStatMod(phys?ac.atk:(ac.ele??ac.atk),aMod), ed=applyStatMod(phys?dc.def:(dc.res??dc.def),dMod);
-    if (ac.fatigued) ea*=0.8;
-    if (!phys&&fearLv) ea*=0.75;
-    const power=move.power*(1+0.1*tier);
-    let dmg=(ea/Math.max(1,ed))*power*0.18*k*stab*(0.85+Math.random()*0.15);
-    if (crit) dmg*=CRIT_MULT;
-    if (has(dc.fx,"knocked")) dmg*=1.25;
-    dmg=Math.max(1,Math.floor(dmg));
-    dc.battleHp=Math.max(0,dc.battleHp-dmg); msgs.push("Hit for "+dmg+"!");
-    if (crit) msgs.push("A critical hit!");
+    const stab=(ac.types||[]).includes(mt)?SAME_TYPE_BONUS:1, hits=move.hits||1;
+    let landed=0;
+    for (let h=0; h<hits && dc.battleHp>0; h++) {
+      const crit=Math.random() < (move.crit ?? CRIT_CHANCE) * (has(dc.fx,"knocked")?2:1);
+      // A critical hit ignores the target's boosts and the attacker's own drops
+      const aKey=phys?"atk":"ele", dKey=phys?"def":"res";
+      let aMod=ac.statMods[aKey]||0, dMod=dc.statMods[dKey]||0;
+      if (crit) { aMod=Math.max(0,aMod); dMod=Math.min(0,dMod); }
+      let ea=applyStatMod(phys?ac.atk:(ac.ele??ac.atk),aMod), ed=applyStatMod(phys?dc.def:(dc.res??dc.def),dMod);
+      if (ac.fatigued) ea*=0.8;
+      if (!phys&&fearLv) ea*=0.75;
+      const power=move.power*(1+0.1*tier);
+      let dmg=(ea/Math.max(1,ed))*power*0.18*k*stab*(0.85+Math.random()*0.15);
+      if (crit) dmg*=CRIT_MULT;
+      if (has(dc.fx,"knocked")) dmg*=1.25;
+      dmg=Math.max(1,Math.floor(dmg));
+      dc.battleHp=Math.max(0,dc.battleHp-dmg); msgs.push("Hit for "+dmg+"!"); landed++;
+      if (crit) msgs.push("A critical hit!");
+    }
+    if (hits>1) msgs.push(`Hit ${landed} ${landed===1?"time":"times"}!`);
     if (k>1) msgs.push(k>=4?"It's devastating!":"It's super effective!");
     else if (k<1) msgs.push("It's not very effective…");
     // Toxic Hide: hitting it with your body can poison you
@@ -191,6 +216,12 @@ export function executeBattleMove(atk,def,move) {
     const target=st.self?ac:dc;
     if (!st.self && target.battleHp<=0) continue;
     if (Math.random() < st.chance) giveStatus(target, st.id, st.turns, msgs);
+  }
+  // Dawn Chorus: wakes and calms it, and the rest of your team hears it too
+  if (move.special==="dawnChorus") {
+    const before=ac.fx.length; ac.fx=ac.fx.filter(f=>!["fear","drowsy","asleep"].includes(f.id));
+    msgs.push(before>ac.fx.length?`${ac.label} sings its courage back!`:"The song carries across the whole team.");
+    ac.teamCure=["fear","drowsy","asleep"];
   }
   if (move.special==="clearOne") {
     const bad=(ac.fx||[]).find(f=>!STATUS[f.id]?.self);
@@ -206,7 +237,8 @@ export function executeBattleMove(atk,def,move) {
 }
 // End of a round, for each creature in the fight: poison hurts, every status counts down a turn,
 // and a creature that didn't attack gets a little stamina back
-const ENDED = { poison:"is no longer poisoned", fear:"is no longer afraid", blind:"can see again", festering:"'s wound is closing", toxichide:"'s toxic coat wears off" };
+const ENDED = { poison:"is no longer poisoned", fear:"is no longer afraid", blind:"can see again", festering:"'s wound is closing", toxichide:"'s toxic coat wears off",
+  mute:"finds its voice again", confusion:"is no longer confused", awake:"settles down" };
 export function endOfRound(b0) {
   const b={...b0,fx:[...(b0.fx||[])]}, msgs=[];
   if (b.battleHp<=0) return {b,msgs};
@@ -229,13 +261,18 @@ export function endOfRound(b0) {
 export function applyEndOfTurn(b) { const r=endOfRound(b); return {b:r.b,msg:r.msgs.join(" · ")||null}; }
 // Moves it can use right now (a Fatigued creature only manages light ones)
 export function usableMoves(b) {
-  const mvs=b.moves||[];
+  let mvs=b.moves||[];
+  if (has(b.fx,"mute")) { const loud=mvs.filter(m=>!isElemental(m)); if (loud.length) mvs=loud; }
   if (!b.fatigued) return mvs;
   const light=mvs.filter(isLight);
   return light.length?light:[...mvs].sort((a,c)=>staminaCost(a)-staminaCost(c)).slice(0,1);
 }
 export function aiPickMove(enemy,player) {
-  const mvs=usableMoves(enemy);
+  let mvs=usableMoves(enemy).filter(m=>m.special!=="borrow"||player?.lastEle);
+  if (!mvs.length) mvs=usableMoves(enemy);
   if (enemy.battleHp<enemy.maxHp*0.3){const h=mvs.find(m=>m.effect==="heal");if(h)return h;}
-  return [...mvs].sort((a,b)=>b.power-a.power)[0]||mvs[0];
+  // Now and then something other than its strongest hit (a support move, a status move)
+  const others=mvs.filter(m=>m.power===0||m.status||m.special);
+  if (others.length && Math.random()<0.3) return others[Math.floor(Math.random()*others.length)];
+  return [...mvs].sort((a,b)=>b.power*(b.hits||1)-a.power*(a.hits||1))[0]||mvs[0];
 }

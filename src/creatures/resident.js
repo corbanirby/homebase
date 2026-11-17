@@ -87,7 +87,8 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
   c.stageId = lifeStage(c).id;
   c.level = level; c.wild = true;
   c.fullness = 0.7 + Math.random() * 0.3;
-  return c;
+  // Species with a move list know what a creature of its level and age would have learned
+  return hasLearnset(c) ? initLearnset(c) : c;
 }
 
 // Bring a creature up to a level, with the experience and moves it would have picked up on the way

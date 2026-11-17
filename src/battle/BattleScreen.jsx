@@ -79,6 +79,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   const benchRef=useRef(new Map());
   // How often each of your creatures used each move (mastery)
   const usesRef=useRef({});
+  // Statuses Dawn Chorus has cleared from the whole team
+  const curedRef=useRef(new Set());
   // Single gate for every player action: blocks double taps before React re-renders
   function claimTurn(){
     if(phase!=="player_turn"||busyRef.current) return false;
@@ -128,7 +130,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     return x;
   }
   function benchFor(c){
-    const saved=benchRef.current.get(c.id); if(!saved) return {b:makeBattler(c,biome),rounds:0};
+    const saved=benchRef.current.get(c.id);
+    if(!saved){ const cured=curedRef.current; return {b:makeBattler(cured.size?{...c,statuses:(c.statuses||[]).filter(x=>!cured.has(x.id))}:c,biome),rounds:0}; }
     return {b:catchUpBench(makeBattler(c,biome,saved),roundRef.current-saved.at),rounds:roundRef.current-saved.at};
   }
   // What the battle did to everyone you carry: statuses and stamina going back into the world
@@ -140,7 +143,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       if(!c||c.id===active?.id||!benchRef.current.has(c.id)) continue;
       put(benchFor(c).b);
     }
-    return {rounds:roundRef.current,updates,uses:usesRef.current,entered:[...benchRef.current.keys(),active?.id].filter(Boolean)};
+    return {rounds:roundRef.current,updates,uses:usesRef.current,cured:[...curedRef.current],entered:[...benchRef.current.keys(),active?.id].filter(Boolean)};
   }
   function endBattle(result,fp,fe){
     const extra=battleResults(fp);
@@ -167,6 +170,12 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   function queueMove(items,r,before,mine){
     const [first,...rest]=r.msgs;
     items.push({msg:first});
+    // A song for the whole team: the ones on the bench (and the ones yet to come out) hear it too
+    if(mine&&r.newAttacker.teamCure){
+      const ids=r.newAttacker.teamCure; ids.forEach(id=>curedRef.current.add(id));
+      for(const [k,v] of benchRef.current) benchRef.current.set(k,{...v,fx:(v.fx||[]).filter(f=>!ids.includes(f.id))});
+      r={...r,newAttacker:{...r.newAttacker,teamCure:null}};
+    }
     const apply=()=>{
       const a=r.newAttacker, d=r.newDefender;
       if(mine){ setPlayer(a); playerRef.current=a; setEnemy(d); enemyRef.current=d; if(d.battleHp<before.battleHp){setShakeE(true);setTimeout(()=>setShakeE(false),200);} }

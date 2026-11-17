@@ -17,11 +17,18 @@ export const STATUS = {
   knocked:   { name: "Knocked down", icon: "💫", color: "#fbbf24", stack: 1, extend: false, lingers: false },
   // No healing of any kind
   festering: { name: "Festering",    icon: "🩸", color: "#b45309", stack: 1, extend: true, lingers: true },
+  // Can't use elemental moves
+  mute:      { name: "Mute",         icon: "🔇", color: "#64748b", stack: 1, extend: true, lingers: true },
+  // 33/45/55% chance to hurt itself instead of acting
+  confusion: { name: "Confusion",    icon: "💫", color: "#e879f9", stack: 3, lingers: true },
+  // Dawn Chorus: can't become drowsy
+  awake:     { name: "Wide awake",   icon: "🌅", color: "#fcd34d", stack: 1, extend: true, lingers: false, self: true },
   // Toxic Hide's coat: anything that hits it with a physical move may be poisoned
   toxichide: { name: "Toxic hide",   icon: "🛡️", color: "#c084fc", stack: 1, extend: true, lingers: false, self: true },
 };
 export const FEAR_CHANCE = [0, 0.2, 0.3, 0.4];
 export const BLIND_ACC = [1, 0.7, 0.6, 0.5];
+export const CONFUSE_CHANCE = [0, 0.33, 0.45, 0.55];
 
 export const level = (fx, id) => (fx || []).filter(f => f.id === id).length;
 export const has = (fx, id) => (fx || []).some(f => f.id === id);
