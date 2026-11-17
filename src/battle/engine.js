@@ -109,8 +109,11 @@ function changeStage(b, stat, stages, msgs) {
   msgs.push(`${b.label}'s ${STAT_NAME[stat]} ${stages > 0 ? "rose" : "fell"}${Math.abs(stages) > 1 ? " sharply" : ""}!`);
 }
 const STATUS_ON = { poison:"is poisoned", fear:"is afraid", blind:"can't see well", knocked:"is knocked down", festering:"has a festering wound", toxichide:"is coated in toxic slime" };
+// Statuses a type can't get (Poison creatures can't be poisoned; more as species get their moves)
+const IMMUNE = { poison: "Poison" };
 function giveStatus(b, id, turns, msgs) {
   if (id === "knocked" && (b.kdGuard > 0 || has(b.fx, "knocked"))) return;
+  if (IMMUNE[id] && (b.types || []).includes(IMMUNE[id])) { msgs.push(`${b.label} can't be ${id === "poison" ? "poisoned" : "affected"}!`); return; }
   const r = addStatus(b.fx, id, turns);
   if (!r.added) return;
   b.fx = r.fx;
