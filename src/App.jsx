@@ -1245,7 +1245,6 @@ export default function Homebase(){
                 </>}
                 {cardTab==="moves"&&(()=>{ const ids=c.learned?.length?c.learned:(c.moves||[]).map(m=>m.id), onIds=(c.moves||[]).map(m=>m.id), on=new Set(onIds);
                   const rest=ids.filter(id=>!on.has(id)), here=uiState.atSwap;
-                  const ls=SPECIES[c.species]?.learnset, next=ls?.find(e=>!ids.includes(e.move));
                   const row=(id,eq)=>{ const m=moveById(id); if(!m) return null; const tier=masteryTier(c.mastery?.[id]||0), fx=moveEffectText(m), col=TYPE_COLORS[m.type]||"#aaa";
                     const can=here&&(eq?on.size>1:on.size<4);
                     return (
@@ -1274,7 +1273,6 @@ export default function Homebase(){
                     </div>}
                     <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.45}}>
                       {here?(on.size>=4&&rest.length?"Leave a move to make room for another.":"Choose up to 4 moves to bring."):"You can change moves at home, your door, a spring or the river shoals."}
-                      {next&&<div style={{marginTop:4}}>Next: <span style={{color:"#c8e6a0"}}>{moveById(next.move)?.name}</span> at level {next.lv}{next.stage?` once it's ${next.stage==="adult"?"an adult":next.stage==="elder"?"an elder":"an adolescent"}`:""}.</div>}
                     </div>
                   </>); })()}
                 {cardTab==="genes"&&<>
