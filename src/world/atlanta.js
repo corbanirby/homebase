@@ -4,9 +4,10 @@
 // through hardwood forest, loblolly pine stands on red clay, granite outcrops,
 // kudzu fields and a powerline-cut meadow. It's built from a fixed seed, so it's
 // the same every trip and never needs saving.
-export const ATL_W = 128, ATL_H = 96;
+export const ATL_W = 256, ATL_H = 192; // about 2 minutes to walk across
 export const AREA = 16; // population areas are 16×16 tiles
 const SEED = 1837;      // the year Atlanta was founded (as Terminus)
+export const WORLD_V = 2; // bump when the map changes, so saved numbers start fresh
 
 function mulberry(seed) {
   return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -35,26 +36,26 @@ export function atlanta() {
 
   // Upland ground: pine on clay where it's drier, hardwoods where it's damper, meadow between
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
-    const n = noise(c, r, 18, 1), m = noise(c, r, 7, 2), v = hash2(c, r, 3);
+    const n = noise(c, r, 22, 1) * 0.8 + noise(c, r, 60, 21) * 0.2, m = noise(c, r, 7, 2), v = hash2(c, r, 3);
     if (n < 0.36) { biome[r][c] = "pine"; tiles[r][c] = v < 0.3 ? "pine" : m < 0.45 ? "clay" : "needles"; }
     else if (n > 0.62) { biome[r][c] = "forest"; tiles[r][c] = v < 0.32 ? "tree" : v < 0.4 ? "tallgrass" : "grass"; }
     else { biome[r][c] = "meadow"; tiles[r][c] = v < 0.05 ? "tree" : m > 0.6 ? "tallgrass" : v < 0.25 ? "flower" : "grass"; }
   }
   // Red clay banks
-  for (let i = 0; i < 6; i++) blob(8 + Math.floor(rnd() * (W - 16)), 8 + Math.floor(rnd() * (H - 16)), 2 + Math.floor(rnd() * 3), (c, r) => { tiles[r][c] = "clay"; biome[r][c] = "clay"; });
+  for (let i = 0; i < 22; i++) blob(8 + Math.floor(rnd() * (W - 16)), 8 + Math.floor(rnd() * (H - 16)), 2 + Math.floor(rnd() * 4), (c, r) => { tiles[r][c] = "clay"; biome[r][c] = "clay"; });
   // Kudzu smothering forest edges
-  for (let i = 0; i < 6; i++) blob(10 + Math.floor(rnd() * (W - 20)), 10 + Math.floor(rnd() * (H - 20)), 3 + Math.floor(rnd() * 4), (c, r) => { tiles[r][c] = hash2(c, r, 9) < 0.06 ? "tree" : "kudzu"; biome[r][c] = "kudzu"; });
+  for (let i = 0; i < 20; i++) blob(10 + Math.floor(rnd() * (W - 20)), 10 + Math.floor(rnd() * (H - 20)), 3 + Math.floor(rnd() * 6), (c, r) => { tiles[r][c] = hash2(c, r, 9) < 0.06 ? "tree" : "kudzu"; biome[r][c] = "kudzu"; });
   // Granite outcrops, one of them big (a Stone Mountain stand-in)
-  blob(Math.floor(W * 0.8), Math.floor(H * 0.22), 9, (c, r) => { tiles[r][c] = "granite"; biome[r][c] = "granite"; });
-  for (let i = 0; i < 3; i++) blob(10 + Math.floor(rnd() * (W - 20)), 10 + Math.floor(rnd() * (H - 20)), 3 + Math.floor(rnd() * 3), (c, r) => { tiles[r][c] = "granite"; biome[r][c] = "granite"; });
+  blob(Math.floor(W * 0.82), Math.floor(H * 0.2), 16, (c, r) => { tiles[r][c] = "granite"; biome[r][c] = "granite"; });
+  for (let i = 0; i < 10; i++) blob(10 + Math.floor(rnd() * (W - 20)), 10 + Math.floor(rnd() * (H - 20)), 3 + Math.floor(rnd() * 4), (c, r) => { tiles[r][c] = "granite"; biome[r][c] = "granite"; });
   // The powerline cut: a straight mown band of meadow across the land
   for (let c = 0; c < W; c++) { const r0 = Math.round(H * 0.15 + c * 0.55); for (let k = -2; k <= 2; k++) { const r = r0 + k; if (r > 0 && r < H - 1 && tiles[r][c] !== "granite") { tiles[r][c] = hash2(c, r, 4) < 0.25 ? "tallgrass" : hash2(c, r, 5) < 0.3 ? "flower" : "grass"; biome[r][c] = "meadow"; } } }
 
   // The Chattahoochee: a wide river meandering from the north-west to the south
   const river = [];
-  for (let c = 0; c < W; c++) river.push(H * 0.62 - c * 0.18 + Math.sin(c / 11) * 5 + Math.sin(c / 4.3) * 1.5);
+  for (let c = 0; c < W; c++) river.push(H * 0.66 - c * 0.2 + Math.sin(c / 19) * 9 + Math.sin(c / 7) * 3 + Math.sin(c / 3.1) * 1);
   // Rocky shoals at a few spots along it, where you can wade across
-  const shoalAt = [18, 47, 79, 108];
+  const shoalAt = [22, 64, 108, 150, 196, 236];
   for (let c = 0; c < W; c++) {
     const rc = river[c];
     for (let r = Math.floor(rc - 6); r <= Math.ceil(rc + 6); r++) {
@@ -66,9 +67,9 @@ export function atlanta() {
     }
   }
   // Creeks: shallow, wadeable, winding up from the river through the woods
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 14; i++) {
     let c = 10 + Math.floor(rnd() * (W - 20)), r = Math.round(river[c]);
-    const dir = rnd() < 0.5 ? -1 : 1, len = 18 + Math.floor(rnd() * 22);
+    const dir = rnd() < 0.5 ? -1 : 1, len = 25 + Math.floor(rnd() * 45);
     for (let k = 0; k < len; k++) {
       r += dir; c += Math.round((noise(k, i, 4, 12) - 0.5) * 2.4);
       if (r < 2 || r > H - 3 || c < 2 || c > W - 3) break;
@@ -79,7 +80,7 @@ export function atlanta() {
   }
   // Springs: clear pools in the woods where creatures can rest (a swap spot)
   const springs = [];
-  for (let tries = 0; springs.length < 5 && tries < 500; tries++) {
+  for (let tries = 0; springs.length < 14 && tries < 3000; tries++) {
     const c = 6 + Math.floor(rnd() * (W - 12)), r = 6 + Math.floor(rnd() * (H - 12));
     if (biome[r][c] !== "forest" && biome[r][c] !== "creek") continue;
     if (springs.some(s => Math.hypot(s.c - c, s.r - r) < 22)) continue;
@@ -89,7 +90,7 @@ export function atlanta() {
 
   // Your door opens in an open patch of meadow near the middle
   let door = { c: Math.floor(W / 2), r: Math.floor(H / 2) };
-  for (let rad = 0; rad < 40; rad++) {
+  for (let rad = 0; rad < 80; rad++) {
     const ok = (c, r) => ["grass", "flower", "tallgrass"].includes(tiles[r]?.[c]);
     let found = null;
     for (let k = 0; k < 60 && !found; k++) {

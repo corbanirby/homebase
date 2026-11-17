@@ -1,6 +1,6 @@
 import { newId } from "../engine/ids.js";
 import { isPassable, isCover } from "../world/tiles.js";
-import { atlanta, areaKey, AREA } from "../world/atlanta.js";
+import { atlanta, areaKey, AREA, WORLD_V } from "../world/atlanta.js";
 import { SPECIES, ATLANTA_SPECIES, lifeStage } from "../creatures/species.jsx";
 import { makeWild, DAY, STARVE_MS, HOUR } from "../creatures/resident.js";
 import { movePlayer } from "./movement.js";
@@ -23,20 +23,53 @@ function capacity(area, sp) {
   return cap * DENSITY * (s.rare ? 0.3 : 1);
 }
 export function makePops() {
-  const w = atlanta(), pops = {};
-  for (const [k, area] of Object.entries(w.areas)) { pops[k] = {}; for (const sp of ATLANTA_SPECIES) pops[k][sp] = capacity(area, sp) * (0.7 + Math.random() * 0.3); }
-  return { pops, popsAt: Date.now() };
+  const w = atlanta(), pops = {}, lv = {};
+  for (const [k, area] of Object.entries(w.areas)) { pops[k] = {}; for (const sp of ATLANTA_SPECIES) pops[k][sp] = capacity(area, sp) * (0.7 + Math.random() * 0.3); lv[k] = Math.max(1, areaPotential(k) * 0.5); }
+  return { v: WORLD_V, pops, popsAt: Date.now(), lv };
+}
+// ─── Area levels ──────────────────────────────────────────────────────────────
+// Each population area has a potential (up to 50): low by your door, high in remote,
+// wild land (forest, river, granite, pines). Left alone, an area's level grows about
+// 2 a day up to its potential, then keeps growing more slowly with no cap: half a
+// level a day for the next 20, then each 10 more takes twice as long as the last.
+// Battles won and creatures caught there knock it back down.
+const potentials = {};
+const WILD_LAND = { forest: 1, granite: 1, river: 1, shoal: 1, creek: 1, pine: 0.8, kudzu: 0.6, clay: 0.6, meadow: 0.3 };
+export function areaPotential(k) {
+  if (potentials[k] != null) return potentials[k];
+  const w = atlanta(), [cx, cy] = k.split(",").map(Number), area = w.areas[k] || {};
+  const col = (cx + 0.5) * AREA, row = (cy + 0.5) * AREA, d = distFromDoor(col, row), maxD = Math.hypot(w.W, w.H) / 2;
+  let tot = 0, wild = 0; for (const [b, n] of Object.entries(area)) { tot += n; wild += n * (WILD_LAND[b] ?? 0.5); }
+  const f = Math.pow(Math.min(1, d / (maxD * 0.85)), 1.15) * (0.7 + 0.4 * (tot ? wild / tot : 0.5));
+  return (potentials[k] = d < 20 ? 3 : Math.max(3, Math.min(50, Math.round(2 + 48 * f))));
+}
+export function levelRate(L, P) {
+  if (L < P) return 2;
+  const e = L - P;
+  return e < 20 ? 0.5 : 0.25 * Math.pow(0.5, (e - 20) / 10);
+}
+function growLevel(L, P, days) {
+  let t = days;
+  while (t > 0) { const dt = Math.min(0.25, t), r = levelRate(L, P); L = L < P ? Math.min(P, L + r * dt) : L + r * dt; t -= dt; }
+  return L;
+}
+export const areaLevel = (world, k) => world?.lv?.[k] ?? Math.max(1, areaPotential(k) * 0.5);
+// A battle won or a creature caught here: the strong are thinned out and young ones fill in
+export function disturbArea(world, col, row) {
+  const k = areaKey(col, row), L = areaLevel(world, k);
+  return { ...world, lv: { ...(world.lv || {}), [k]: Math.max(1, L - (1 + 0.03 * L)) } };
 }
 // Numbers recover toward what the land can hold while you're away
 export function regrowPops(world, now = Date.now(), speed = 1) {
   const w = atlanta(), days = Math.max(0, (now - (world.popsAt || now)) * speed / DAY);
   if (days <= 0) return world;
-  const pops = {};
+  const pops = {}, lv = {};
   for (const [k, area] of Object.entries(w.areas)) {
     pops[k] = {};
     for (const sp of ATLANTA_SPECIES) { const cap = capacity(area, sp), cur = world.pops[k]?.[sp] ?? cap; pops[k][sp] = cur + (cap - cur) * Math.min(1, days * REGROW); }
+    lv[k] = growLevel(areaLevel(world, k), areaPotential(k), days);
   }
-  return { pops, popsAt: now };
+  return { ...world, pops, popsAt: now, lv };
 }
 function density(world, k) {
   const area = atlanta().areas[k]; if (!area) return 0;
@@ -53,12 +86,13 @@ function pickSpecies(world, col, row) {
   for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r <= 0) return ATLANTA_SPECIES[i]; }
   return ATLANTA_SPECIES[ATLANTA_SPECIES.length - 1];
 }
-// Farther from your door, stronger creatures
+// A wild creature here: its level spreads around the area's level (young ones lower, old ones higher)
 export function wildAt(world, col, row, sp = null) {
   sp = sp || pickSpecies(world, col, row); if (!sp) return null;
-  const d = distFromDoor(col, row);
-  const lv = Math.min(10, 1 + Math.floor(d / 14) + (Math.random() < 0.3 ? 1 : 0));
-  return makeWild(sp, col, row, lv, d < 12);
+  const d = distFromDoor(col, row), L = areaLevel(world, areaKey(col, row));
+  // Young ones come in lower than the area's level, old ones a little higher
+  const lvAt = age => Math.max(1, Math.round(L * (age < 0.11 ? 0.6 : age < 0.29 ? 0.8 : age < 0.86 ? 1 : 1.1) * (0.9 + Math.random() * 0.2)));
+  return makeWild(sp, col, row, lvAt, d < 12);
 }
 export function distFromDoor(col, row) { const { door } = atlanta(); return Math.hypot(col - (door.c + 0.5), row - (door.r + 0.5)); }
 export function takeFromPop(world, col, row, sp) {

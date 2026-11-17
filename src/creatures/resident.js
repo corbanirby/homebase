@@ -85,7 +85,7 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
   if (sp.temper) c.genome.aggression[1] = sp.temper[0] + Math.random() * (sp.temper[1] - sp.temper[0]);
   c.age = c.maxAge * (youngOnly ? 0.02 + Math.random() * 0.24 : 0.02 + Math.random() * 0.9);
   c.stageId = lifeStage(c).id;
-  c.level = level; c.wild = true;
+  c.level = typeof level === "function" ? level(c.age / c.maxAge) : level; c.wild = true;
   c.fullness = 0.7 + Math.random() * 0.3;
   // Species with a move list know what a creature of its level and age would have learned
   return hasLearnset(c) ? initLearnset(c) : c;

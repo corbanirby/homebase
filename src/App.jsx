@@ -16,8 +16,8 @@ import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggCl
 import { podName, podFit, fitLabel, bestPod, podsFromPlant, makePod, starterPods, podSeedsToPods, POD_FOOD_MAX } from "./creatures/pods.js";
 import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
-import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, distFromDoor, wildPlants, pickWild, wildPlantSpots } from "./sim/outside.js";
-import { atlanta, areaKey, BIOME_NAMES } from "./world/atlanta.js";
+import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, wildPlants, pickWild, wildPlantSpots, areaLevel, disturbArea } from "./sim/outside.js";
+import { atlanta, areaKey, BIOME_NAMES, WORLD_V } from "./world/atlanta.js";
 import { deriveMoves, levelUpMoves, initLearnset, refreshMoves, hasLearnset, moveById, masteryTier, MASTERY, TYPE_COLORS } from "./battle/moves.js";
 import { moveEffectText } from "./battle/movelist.js";
 import { tickStatuses, restoreStamina, statusSummary, staminaWord, TURN_MS, STATUS } from "./battle/statuses.js";
@@ -88,7 +88,11 @@ const seedsToFood=s=>{ const seeds=s.seeds||{}, food={...(s.food||{bogmoss:2,cat
   return moved||s.seeds?{...s,food,seeds:{}}:s; };
 // Species with a move list (stage 9) get their moves from it the first time; the rest keep theirs
 const ensureMoves=c=>c.isEgg?c:hasLearnset(c)&&!c.learnsetV?initLearnset(c):refreshMoves(c);
-const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods({...s0,creatures:(s0.creatures||[]).map(c=>ensureMoves(ensureGenome(c)))}))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+// The shared world was redrawn bigger (and areas got levels): saved numbers start fresh, and a trip in progress starts back at your door
+const freshWorld=s=>{ if(s.world?.v===WORLD_V) return s;
+  const trip=s.where==="out"&&s.trip?{...newTrip(),bag:s.trip.bag||[]}:s.trip;
+  return {...s,world:makePops(),trip}; };
+const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:(s0.creatures||[]).map(c=>ensureMoves(ensureGenome(c)))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
@@ -492,7 +496,7 @@ export default function Homebase(){
       goHome(true); return;
     }
     // A wild creature that faints in battle dies: one fewer of its kind in this area
-    if(wild&&result==="win"){ stateRef.current={...s,world:takeFromPop(s.world,wild.col,wild.row,wild.species)}; addFloat(`The wild ${speciesOf(wild).name} fainted and didn't survive`,"#cbd5c0",s.trip.player); }
+    if(wild&&result==="win"){ stateRef.current={...s,world:disturbArea(takeFromPop(s.world,wild.col,wild.row,wild.species),wild.col,wild.row)}; addFloat(`The wild ${speciesOf(wild).name} fainted and didn't survive`,"#cbd5c0",s.trip.player); }
     else if(wild) addFloat("You got away","#cbd5c0",s.trip.player);
     refreshUi(); saveNow();
   };
@@ -512,7 +516,7 @@ export default function Homebase(){
     // The pod it stepped into becomes its own (or one just like it, if that one is gone)
     const chosen=(s.pods||[]).find(p=>p.id===podId&&p.creatureId==null), any=(s.pods||[]).find(p=>p.creatureId==null);
     const want=chosen||(s.pods||[]).find(p=>p.creatureId==null&&p.size===chosen?.size)||any;
-    stateRef.current={...s,creatures:[...s.creatures,pet],vine:toVine?[...s.vine,pet.id]:s.vine,trip,world:takeFromPop(s.world,caught.col,caught.row,caught.species),
+    stateRef.current={...s,creatures:[...s.creatures,pet],vine:toVine?[...s.vine,pet.id]:s.vine,trip,world:disturbArea(takeFromPop(s.world,caught.col,caught.row,caught.species),caught.col,caught.row),
       pods:(s.pods||[]).map(p=>p.id===want?.id?{...p,creatureId:pet.id}:p)};
     addFloat(`Caught a ${speciesOf(pet).name}! Meet ${name}${toVine?"":" (in your bag)"}`,"#86efac",s.trip.player);
     refreshUi(); saveNow();
@@ -699,7 +703,7 @@ export default function Homebase(){
               focusRef.current=act?.kind==="battle"?act.wild.id:null;
               const biome=w.biome[Math.floor(tp.row)]?.[Math.floor(tp.col)];
               setUiState(u=>({...u,creatures:sN.creatures,remembered:sN.remembered||[],pods:sN.pods||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},act,atSwap:atSwapSpot(sN),
-                place:{biome:BIOME_NAMES[biome]||"",lv:Math.min(10,1+Math.floor(distFromDoor(tp.col,tp.row)/14)),area:areaKey(tp.col,tp.row)}}));
+                place:{biome:BIOME_NAMES[biome]||"",lv:Math.max(1,Math.round(areaLevel(sN.world,areaKey(tp.col,tp.row)))),area:areaKey(tp.col,tp.row)}}));
             }
             continue;
           }
