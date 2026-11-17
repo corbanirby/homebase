@@ -31,9 +31,9 @@ export function typeMultiplier(atkType, defTypes) {
 }
 export const SAME_TYPE_BONUS = 1.25; // using a move of your own type
 
-// Life stage strength (from the design doc): babies about 50%, adolescents 80%,
+// Life stage strength: babies 70%, adolescents 85% (about Pokémon's first-to-final evolution gap),
 // adults 100%, elders lose some strength and speed. Condition adds or takes up to 10%.
-const STAGE_POWER = { baby:0.5, adolescent:0.8, adult:1, elder:1 };
+const STAGE_POWER = { baby:0.7, adolescent:0.85, adult:1, elder:1 };
 function conditionFactor(c){
   const food=Math.min(1,(c.fullness??1)/0.6);
   const cond=Math.max(0,Math.min(1,food*0.5+(c.hp??1)*0.2+(c.habitat??1)*0.3));
