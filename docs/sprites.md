@@ -10,6 +10,12 @@ How creature sprites are made and added. Ramtarug is the only species with real 
 - **Files:** `public/sprites/<species>/<stage>/<direction>.png`, e.g. `public/sprites/scuffinch/adult/south-east.png`. Species folder names are the lowercase ids in `src/creatures/species.jsx` (`kudzoon`, `thrummet`, `scuffinch`, `flintback`, `shoalclaw`, `glimmerwick`, `possumbra`, `clattershell`, `duskhowl`).
 - **Look:** Heroes of Might and Magic III–style pixel art, readable at small size on a top-down map and big in battle. Look at `public/sprites/ramtarug/` before starting a new species.
 
+## Art first, genes to match
+
+- Each species is designed by hand, so its **art comes first** and its appearance genes (the part slots: head, eyes, ears, crown, mouth, ridge, tail, covering, pattern, feet, build, colours) are **written to match the finished art**. Hidden copies can carry other parts, so offspring can still surprise.
+- **Keep each species to two or three standout features.** Fewer details read better as pixel sprites, especially at map size.
+- Colours should sit in a few clean ramps (main, accent, pattern/markings) so the game can later recolour a creature from its colour genes.
+
 ## Switching a species from placeholder to sprites
 
 In `src/creatures/species.jsx`, the species entry has `art:"<id>"` (draw the placeholder). Replace it with `path:"sprites/<id>"` (load files), the way Ramtarug's entry does. Check Ramtarug's entry for the exact form before changing it. Every stage and direction file must exist, or that view shows nothing.
