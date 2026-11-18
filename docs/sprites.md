@@ -10,6 +10,10 @@ How creature sprites are made and added. Ramtarug is the only species with real 
 - **Files:** `public/sprites/<species>/<stage>/<direction>.png`, e.g. `public/sprites/scuffinch/adult/south-east.png`. Species folder names are the lowercase ids in `src/creatures/species.jsx` (`kudzoon`, `thrummet`, `scuffinch`, `flintback`, `shoalclaw`, `glimmerwick`, `possumbra`, `clattershell`, `duskhowl`).
 - **Look:** Heroes of Might and Magic III–style pixel art, readable at small size on a top-down map and big in battle. Look at `public/sprites/ramtarug/` before starting a new species.
 
+## Flying sets (later)
+
+Make the **standing** set for every species now (walking, battle, menus). Flyers will later also need a **flying/perched** set in 8 directions, but only for the stages that fly (adolescent and adult; babies can't fly, elders fly less). These are made when the Behavior stage is built, from the same PixelLab character so they match. Don't make them yet.
+
 ## Art first, genes to match
 
 - Each species is designed by hand, so its **art comes first** and its appearance genes (the part slots: head, eyes, ears, crown, mouth, ridge, tail, covering, pattern, feet, build, colours) are **written to match the finished art**. Hidden copies can carry other parts, so offspring can still surprise.

@@ -602,3 +602,15 @@ A dedicated pass on creature numbers, before or alongside building the remaining
 - **Size from genes** already scales a creature on the map and in battle.
 - **Part genes (in the background):** head, eyes, pupils, ears, crown, mouth, back, ridge, tail, covering, pattern, feet, build. Two copies each; the higher-ranked copy shows; children get one copy from each parent; 2% mutation per copy. Each species has a founder set written from its sprite (only Ramtarug so far: wide flat head, big round eyes, bar pupils, round ears, curled horns, wide smile, plain back, dorsal plates, leaf tail, smooth skin, spots, padded paws, stocky). Wild creatures and starters carry a different hidden copy about a third of the time. The Genes & family page lists what it shows and what it carries hidden. Parts don't change the drawing yet.
 - **Later:** pick one or two parts per species worth seeing and generate sprite variants for them; use the distance from the species' founder (not a single parent) as the breeding limit and the start of speciation; rare colour morphs (e.g. leucistic, melanistic).
+
+## Behavior stage (planned; merges with Diets and food web)
+
+How each species moves, rests, forages, hides and reacts to you, built after the Stats pass. Includes real diets, whole-plant eating and predation (from the Diets and food web plans), plus:
+
+- **Flying and perching (decided November 18):** flyers move between trees and perches instead of walking. Perched, they're drawn up in the tree; flying, they cast a shadow on the ground below. Water and thickets don't block them.
+  - Each flyer has its own habits: **Scuffinch** forages on the ground, hides in thickets, flies low and short between cover, and sings from a high perch. **Thrummet** adults live up in the trees and drone there. **Glimmerwick** drifts through the air at dusk.
+  - **Encounters:** a perched bird flushes as you approach. By temper it dives at you (Scuffinch's nest defence), flies to another tree, or stays and sings. Birds are caught on the ground, or baited down.
+  - **Life stages:** babies can't fly (nestlings stay in the nest, nymphs underground), which also makes young birds the easier catch; elders fly less.
+  - **At home:** birds need trees to perch in.
+  - **Battle:** everyone stays standing for now; airborne effects in battle (e.g. Air creatures harder to reach with Earth moves) may come later.
+- Other behaviours to cover: Possumbra playing dead outside battle, Clattershell digging, predators hunting prey.
