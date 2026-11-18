@@ -1,6 +1,6 @@
 # Homebase sprites
 
-How creature sprites are made and added. Ramtarug is the only species with real sprites so far; the other nine use code-drawn placeholders (`src/creatures/placeholderArt.js`) until theirs are made.
+How creature sprites are made and added. Ramtarug and Scuffinch have real sprites so far; the other eight use code-drawn placeholders (`src/creatures/placeholderArt.js`) until theirs are made.
 
 ## The format (match Ramtarug)
 

@@ -45,10 +45,12 @@ export const SPECIES = {
     learnset:[ {lv:1,move:"pierce"}, {lv:6,move:"saptap"}, {lv:11,move:"digin"}, {lv:16,move:"emergence"},
       {lv:22,stage:"adult",move:"molt"}, {lv:26,stage:"adult",move:"drone"}, {lv:32,stage:"adult",move:"wingwhir"},
       {lv:38,stage:"adult",move:"chorusswell"}, {lv:44,stage:"adult",move:"seventeenyears"} ] },
-  scuffinch: { no:4, name:"Scuffinch", base:{hp:0.9,atk:1.1,def:0.85,ele:0.9,res:0.9,spd:1.3}, fastHours:24, art:"scuffinch", palette:{ main:{ hue:19, width:15, minSat:0.45, range:14 }, accent:{ hue:40, width:15, minSat:0.12, minVal:0.85, range:15 } }, types:["Air"], lifespanDays:21, habitat:{ wet:[0.15,0.45,0.8] }, eats:HOMEFOOD,
+  scuffinch: { no:4, name:"Scuffinch", base:{hp:0.9,atk:1.1,def:0.85,ele:0.9,res:0.9,spd:1.3}, fastHours:24, path:"sprites/scuffinch", types:["Air"], lifespanDays:21, habitat:{ wet:[0.15,0.45,0.8] }, eats:HOMEFOOD,
     diet:"Bugs scratched out of leaf litter", based:"Brown thrasher", biomes:{ meadow:0.8, forest:0.6, kudzu:0.4, clay:0.3 }, sizeMul:0.7, temper:[0.45,1.0],
     // The old singer: slower, wiser
     elder:{ spd:0.8, atk:0.9, ele:1.1, res:1.05 }, stamina:0.8,
+    // Colour ramps in its sprite: rust-brown back, wings and tail (turns between brown and brick red), cream breast (pale buff to warm cream); the yellow eye and white wing bars stay put
+    palette:{ main:{ hue:9, width:12, minSat:0.4, range:14 }, accent:{ hue:28, width:12, minSat:0.1, minVal:0.8, range:15 } },
     learnset:[ {lv:1,move:"peck"}, {lv:5,move:"leafflick"}, {lv:9,move:"wingattack"}, {lv:14,move:"doublephrase"},
       {lv:20,stage:"adolescent",move:"dirtscuff"}, {lv:26,stage:"adolescent",move:"borrowedsong"}, {lv:32,stage:"adult",move:"hedgedive"},
       {lv:36,stage:"adult",move:"dawnchorus"}, {lv:40,stage:"adult",move:"scoldingcall"}, {lv:44,stage:"adult",move:"nestfury"},
