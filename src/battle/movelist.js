@@ -43,13 +43,86 @@ export const MOVES = {
   topple:         { name: "Topple",             type: "Normal", kind: "physical", power: 85, acc: 0.85, stamina: 20, status: [{ id: "knocked", chance: 0.15, turns: 1 }] },
   deepcrown:      { name: "Deep Crown",         type: "Plant",  kind: "support",  power: 0,  acc: 1.0,  stamina: 15, status: [{ id: "deepcrown", chance: 1, turns: 3, self: true }] },
   woodycrown:     { name: "Woody Crown",        type: "Plant",  kind: "support",  power: 0,  acc: 1.0,  stamina: 15, stat: [{ stat: "def", stages: 2, self: true }, { stat: "res", stages: 2, self: true }], heal: 0.25 },
+  // ── Shared moves: plain actions any species can have, each with one small quirk
+  bite:          { name: "Bite",            type: "Normal", kind: "physical", power: 40,  acc: 1.0,  stamina: 3,  status: [{ id: "fear", chance: 0.05, turns: 2 }] },
+  pinch:         { name: "Pinch",           type: "Normal", kind: "physical", power: 35,  acc: 1.0,  stamina: 3,  status: [{ id: "bleed", chance: 0.1, turns: 2 }] },
+  scratch:       { name: "Scratch",         type: "Normal", kind: "physical", power: 35,  acc: 1.0,  stamina: 3,  crit: 0.1, status: [{ id: "bleed", chance: 0.05, turns: 2 }] },
+  dig:           { name: "Dig",             type: "Earth",  kind: "physical", power: 80,  acc: 1.0,  stamina: 14, twoTurn: true },
+  splash:        { name: "Splash",          type: "Water",  kind: "elemental", power: 45, acc: 1.0,  stamina: 6,  status: [{ id: "wet", chance: 0.5, turns: 6 }] },
+  zap:           { name: "Zap",             type: "Electric", kind: "elemental", power: 30, acc: 1.0, stamina: 3, status: [{ id: "paralysis", chance: 0.1, turns: 2 }] },
+  shock:         { name: "Shock",           type: "Electric", kind: "elemental", power: 45, acc: 1.0, stamina: 6, status: [{ id: "paralysis", chance: 0.2, turns: 3 }] },
+  // Thrummet
+  pierce:        { name: "Pierce",          type: "Bug",    kind: "physical", power: 35,  acc: 1.0,  stamina: 3,  crit: 0.12 },
+  saptap:        { name: "Sap Tap",         type: "Bug",    kind: "elemental", power: 30, acc: 1.0,  stamina: 5,  drain: 0.5 },
+  digin:         { name: "Dig In",          type: "Earth",  kind: "support",  power: 0,   acc: 1.0,  stamina: 5,  stat: [{ stat: "def", stages: 1, self: true }] },
+  emergence:     { name: "Emergence",       type: "Earth",  kind: "physical", power: 50,  acc: 0.95, stamina: 8 },
+  molt:          { name: "Molt",            type: "Air",    kind: "support",  power: 0,   acc: 1.0,  stamina: 10, special: "molt" },
+  drone:         { name: "Drone",           type: "Air",    kind: "elemental", power: 50, acc: 0.95, stamina: 8,  foeStamina: 15, status: [{ id: "confusion", chance: 0.2, turns: 3 }] },
+  wingwhir:      { name: "Wing Whir",       type: "Air",    kind: "physical", power: 60,  acc: 1.0,  stamina: 9 },
+  chorusswell:   { name: "Chorus Swell",    type: "Bug",    kind: "support",  power: 0,   acc: 1.0,  stamina: 10, foeStamina: 10, stat: [{ stat: "ele", stages: 1, self: true }] },
+  seventeenyears:{ name: "Seventeen Years", type: "Bug",    kind: "elemental", power: 95, acc: 0.9,  stamina: 24, status: [{ id: "confusion", chance: 0.3, turns: 3 }] },
+  // Flintback
+  flintstrike:   { name: "Flint Strike",    type: "Fire",   kind: "physical", power: 35,  acc: 1.0,  stamina: 3,  status: [{ id: "burn", chance: 0.1, turns: 3 }] },
+  pushups:       { name: "Push-Ups",        type: "Normal", kind: "support",  power: 0,   acc: 0.95, stamina: 5,  stat: [{ stat: "atk", stages: 1, self: true }, { stat: "atk", stages: -1 }] },
+  gritspray:     { name: "Grit Spray",      type: "Earth",  kind: "elemental", power: 40, acc: 0.95, stamina: 6,  status: [{ id: "blind", chance: 0.1, turns: 2 }] },
+  bask:          { name: "Bask",            type: "Fire",   kind: "support",  power: 0,   acc: 1.0,  stamina: 6,  stat: [{ stat: "spd", stages: 1, self: true }, { stat: "ele", stages: 1, self: true }] },
+  hotstone:      { name: "Hot Stone",       type: "Earth",  kind: "physical", power: 60,  acc: 0.95, stamina: 10, status: [{ id: "burn", chance: 0.2, turns: 4 }] },
+  taildrop:      { name: "Tail Drop",       type: "Normal", kind: "support",  power: 0,   acc: 1.0,  stamina: 10, special: "tailDrop" },
+  flintflash:    { name: "Flint Flash",     type: "Fire",   kind: "elemental", power: 70, acc: 0.95, stamina: 12, status: [{ id: "burn", chance: 0.3, turns: 6 }] },
+  hotrocks:      { name: "Hot Rocks",       type: "Fire",   kind: "support",  power: 0,   acc: 1.0,  stamina: 14, field: { id: "hotrocks", turns: 5 } },
+  graniteslam:   { name: "Granite Slam",    type: "Earth",  kind: "physical", power: 90,  acc: 0.9,  stamina: 20 },
+  oldcoal:       { name: "Old Coal",        type: "Fire",   kind: "elemental", power: 100, acc: 0.9, stamina: 24, status: [{ id: "burn", chance: 0.4, turns: 8 }] },
+  // Shoalclaw
+  siltcloud:     { name: "Silt Cloud",      type: "Water",  kind: "elemental", power: 30, acc: 1.0,  stamina: 4,  status: [{ id: "blind", chance: 0.2, turns: 2 }] },
+  clawclamp:     { name: "Claw Clamp",      type: "Water",  kind: "physical", power: 55,  acc: 0.95, stamina: 9,  status: [{ id: "bleed", chance: 0.3, turns: 4 }] },
+  mudfort:       { name: "Mud Fort",        type: "Earth",  kind: "support",  power: 0,   acc: 1.0,  stamina: 8,  stat: [{ stat: "def", stages: 2, self: true }] },
+  tailflip:      { name: "Tail Flip",       type: "Water",  kind: "support",  power: 0,   acc: 1.0,  stamina: 8,  special: "tailFlip" },
+  riverbedrake:  { name: "Riverbed Rake",   type: "Earth",  kind: "physical", power: 70,  acc: 0.95, stamina: 12, status: [{ id: "knocked", chance: 0.1, turns: 1 }] },
+  crushingclaw:  { name: "Crushing Claw",   type: "Water",  kind: "physical", power: 85,  acc: 0.9,  stamina: 18, crit: 0.25, status: [{ id: "bleed", chance: 0.3, turns: 5 }] },
+  oldpincer:     { name: "Old Pincer",      type: "Normal", kind: "physical", power: 100, acc: 0.85, stamina: 22, status: [{ id: "bleed", chance: 0.4, turns: 6 }] },
+  // Glimmerwick
+  flashpattern:  { name: "Flash Pattern",   type: "Electric", kind: "support", power: 0,  acc: 0.85, stamina: 4,  status: [{ id: "blind", chance: 1, turns: 2 }] },
+  nightswarm:    { name: "Night Swarm",     type: "Bug",    kind: "elemental", power: 20, acc: 0.9,  stamina: 8,  hits: 3 },
+  falsesignal:   { name: "False Signal",    type: "Electric", kind: "support", power: 0,  acc: 0.9,  stamina: 8,  stat: [{ stat: "def", stages: -1 }, { stat: "res", stages: -1 }] },
+  glowwormdrift: { name: "Glowworm Drift",  type: "Bug",    kind: "support",  power: 0,   acc: 1.0,  stamina: 6,  stat: [{ stat: "spd", stages: 1, self: true }], status: [{ id: "drift", chance: 1, turns: 4, self: true }] },
+  heatlightning: { name: "Heat Lightning",  type: "Electric", kind: "elemental", power: 80, acc: 0.9, stamina: 14, status: [{ id: "paralysis", chance: 0.3, turns: 4 }] },
+  lastlight:     { name: "Last Light",      type: "Electric", kind: "elemental", power: 110, acc: 0.95, stamina: 25, selfCost: 0.5 },
+  // Possumbra
+  fiftytoothhiss:{ name: "Fifty-Tooth Hiss",type: "Normal", kind: "support",  power: 0,   acc: 0.9,  stamina: 5,  stat: [{ stat: "atk", stages: -1 }], status: [{ id: "fear", chance: 0.3, turns: 3 }] },
+  moonlessstare: { name: "Moonless Stare",  type: "Spirit", kind: "elemental", power: 45, acc: 1.0,  stamina: 6,  status: [{ id: "fear", chance: 0.15, turns: 3 }] },
+  tailgrip:      { name: "Tail Grip",       type: "Normal", kind: "physical", power: 45,  acc: 0.95, stamina: 7,  status: [{ id: "tangle", chance: 0.25, turns: 2 }] },
+  playdead:      { name: "Play Dead",       type: "Spirit", kind: "support",  power: 0,   acc: 1.0,  stamina: 0,  special: "playDead" },
+  tickgroom:     { name: "Tick Groom",      type: "Normal", kind: "support",  power: 0,   acc: 1.0,  stamina: 8,  heal: 0.15, special: "groom" },
+  scavenge:      { name: "Scavenge",        type: "Normal", kind: "support",  power: 0,   acc: 1.0,  stamina: 10, heal: 0.3 },
+  graveyardshift:{ name: "Graveyard Shift", type: "Spirit", kind: "elemental", power: 75, acc: 0.95, stamina: 14, status: [{ id: "fear", chance: 0.25, turns: 4 }] },
+  deathscent:    { name: "Death Scent",     type: "Spirit", kind: "elemental", power: 90, acc: 0.95, stamina: 20, status: [{ id: "fear", chance: 0.3, turns: 4 }, { id: "festering", chance: 0.3, turns: 6 }] },
+  // Clattershell
+  brace:         { name: "Brace",           type: "Metal",  kind: "support",  power: 0,   acc: 1.0,  stamina: 5,  stat: [{ stat: "def", stages: 2, self: true }] },
+  pounce:        { name: "Pounce",          type: "Normal", kind: "physical", power: 45,  acc: 0.95, stamina: 7,  status: [{ id: "knocked", chance: 0.3, turns: 1 }] },
+  platebash:     { name: "Plate Bash",      type: "Metal",  kind: "physical", power: 55,  acc: 1.0,  stamina: 8 },
+  grub:          { name: "Grub",            type: "Earth",  kind: "support",  power: 0,   acc: 1.0,  stamina: 10, heal: 0.25 },
+  heavylanding:  { name: "Heavy Landing",   type: "Metal",  kind: "physical", power: 90,  acc: 0.9,  stamina: 20, status: [{ id: "knocked", chance: 0.3, turns: 1 }] },
+  ironhide:      { name: "Ironhide",        type: "Metal",  kind: "support",  power: 0,   acc: 1.0,  stamina: 15, stat: [{ stat: "def", stages: 2, self: true }, { stat: "res", stages: 2, self: true }], heal: 0.15 },
+  // Duskhowl
+  yipcall:       { name: "Yip Call",        type: "Spirit", kind: "support",  power: 0,   acc: 0.9,  stamina: 5,  stat: [{ stat: "atk", stages: 1, self: true }], status: [{ id: "fear", chance: 0.2, turns: 2 }] },
+  hamstring:     { name: "Hamstring",       type: "Normal", kind: "physical", power: 55,  acc: 0.95, stamina: 9,  stat: [{ stat: "spd", stages: -1 }], status: [{ id: "bleed", chance: 0.2, turns: 4 }] },
+  stalk:         { name: "Stalk",           type: "Spirit", kind: "support",  power: 0,   acc: 1.0,  stamina: 8,  status: [{ id: "stalk", chance: 1, turns: 5, self: true }] },
+  duskhowl:      { name: "Dusk Howl",       type: "Spirit", kind: "elemental", power: 65, acc: 0.95, stamina: 12, status: [{ id: "fear", chance: 0.3, turns: 3 }] },
+  rundown:       { name: "Run Down",        type: "Normal", kind: "physical", power: 75,  acc: 0.95, stamina: 14, bonusVsSlower: true },
+  frenzy:        { name: "Frenzy",          type: "Normal", kind: "support",  power: 0,   acc: 1.0,  stamina: 12, stat: [{ stat: "atk", stages: 2, self: true }], status: [{ id: "berserk", chance: 1, turns: 3, self: true }] },
+  moonchase:     { name: "Moon Chase",      type: "Spirit", kind: "physical", power: 95,  acc: 0.9,  stamina: 22, status: [{ id: "bleed", chance: 0.3, turns: 5 }] },
+  packleader:    { name: "Pack Leader's Call", type: "Spirit", kind: "support", power: 0, acc: 1.0,  stamina: 15, stat: [{ stat: "atk", stages: 1, self: true }], special: "teamAtk" },
 };
 for (const [id, m] of Object.entries(MOVES)) m.id = id;
-export const FIELDS = { overgrown: { name: "Overgrown", icon: "🌿", text: "Plant moves +25%, everyone else 20% slower, Tangle lands more often" } };
+export const FIELDS = {
+  overgrown: { name: "Overgrown", icon: "🌿", text: "Plant moves +25%, everyone else 20% slower, Tangle lands more often" },
+  hotrocks: { name: "Hot Rocks", icon: "🔥", text: "Fire moves +25%, Burn lands more often, Plant creatures 20% slower" },
+};
 
 // What each move does, in a line (for the card and the move buttons)
 const STAT_NAME = { atk: "Attack", def: "Defense", ele: "Elemental", res: "Resistance", spd: "Speed" };
-const SNAME = { poison: "Poison", fear: "Fear", blind: "Blind", knocked: "Knocked down", festering: "Festering", mute: "Mute", confusion: "Confusion", tangle: "Tangle", leech: "Leech", drowsy: "Drowsy" };
+const SNAME = { poison: "Poison", fear: "Fear", blind: "Blind", knocked: "Knocked down", festering: "Festering", mute: "Mute", confusion: "Confusion", tangle: "Tangle", leech: "Leech", drowsy: "Drowsy",
+  burn: "Burn", bleed: "Bleed", paralysis: "Paralysis", wet: "Wet" };
 export function moveEffectText(m) {
   const parts = [];
   for (const s of m.stat || []) parts.push(`${s.self ? "" : "foe's "}${STAT_NAME[s.stat]} ${s.stages > 0 ? "up" : "down"}`);
@@ -57,12 +130,26 @@ export function moveEffectText(m) {
     if (s.id === "toxichide") parts.push("poisons attackers 30% (10 turns)");
     else if (s.id === "awake") parts.push("can't get drowsy (5 turns)");
     else if (s.id === "deepcrown") parts.push("for 3 turns survives a knockout with 1 HP and heals 5% a turn");
+    else if (s.id === "drift") parts.push("the next hit on it has a 50% chance to miss");
+    else if (s.id === "stalk") parts.push("its next hit is a critical hit");
+    else if (s.id === "berserk") parts.push("goes berserk for 3 turns");
     else parts.push(`${Math.round(s.chance * 100)}% ${SNAME[s.id] || s.id}${s.id === "knocked" ? "" : ` (${s.turns} turns)`}`);
   }
   if (m.special === "clearOne") parts.push("clears one of its statuses");
   if (m.heal) parts.push(`heals ${Math.round(m.heal * 100)}%`);
   if (m.field) parts.push(`overgrows the field (${m.field.turns} turns)`);
   if (m.bonusVs) parts.unshift(`×1.5 power if the foe has ${SNAME[m.bonusVs] || m.bonusVs}`);
+  if (m.special === "molt") parts.push("clears all its statuses and stat drops");
+  if (m.special === "tailDrop") parts.push("once a battle: the dropped tail takes the next hit, and it can flee even if tangled");
+  if (m.special === "tailFlip") parts.push("swaps out at once, even if tangled; the next one comes in free");
+  if (m.special === "playDead") parts.push("the foe's next attack misses; stamina back; foe's Attack down; a wild foe may wander off");
+  if (m.special === "groom") parts.push("clears Leech and Bleed");
+  if (m.special === "teamAtk") parts.push("your whole team's Attack up");
+  if (m.twoTurn) parts.push("two turns: underground (can't be hit), then erupts");
+  if (m.drain) parts.push(`heals ${Math.round(m.drain * 100)}% of the damage it deals`);
+  if (m.foeStamina) parts.push(`foe loses ${m.foeStamina} stamina`);
+  if (m.bonusVsSlower) parts.push("×1.5 power against a slower foe");
+  if (m.selfCost) parts.push(`costs ${Math.round(m.selfCost * 100)}% of its current health`);
   if (m.special === "borrow") parts.push("uses the last elemental move the foe used");
   if (m.special === "dawnChorus") parts.push("wakes and calms your whole team (clears Drowsy and Fear)");
   if (m.hits > 1) parts.unshift(`hits ${m.hits} times`);

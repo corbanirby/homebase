@@ -3,7 +3,7 @@ import { TICK_MS, XP_PER_LEVEL } from "./config.js";
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
-import { makeBattler, executeBattleMove, endOfRound, aiPickMove, leechDrain } from "./battle/engine.js";
+import { makeBattler, executeBattleMove, endOfRound, aiPickMove, leechDrain, typesOf } from "./battle/engine.js";
 import { isPassable } from "./world/tiles.js";
 import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./world/land.js";
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
@@ -1197,7 +1197,7 @@ export default function Homebase(){
                       </div>
                     )}
                     <div style={{color:"#8a9a7a",fontSize:12,marginTop:2}}>{speciesOf(c).name} · {st.label} · {fmtAge(c.age)} old</div>
-                    <div style={{color:"#5a6a4a",fontSize:11,marginTop:2}}>{(speciesOf(c).types||[]).join(" / ")} · Lv{c.level||1} · {nx?`${nx.stage.label} in ${formatDuration(nx.ms)}`:inLastDays(c)?"In the last days of its life":"An elder"}</div>
+                    <div style={{color:"#5a6a4a",fontSize:11,marginTop:2}}>{typesOf(c).join(" / ")} · Lv{c.level||1} · {nx?`${nx.stage.label} in ${formatDuration(nx.ms)}`:inLastDays(c)?"In the last days of its life":"An elder"}</div>
                   </div>
                   <button onClick={()=>{setCardId(null);setRenaming(null);}} aria-label="Close" style={{...closeBtn,alignSelf:"flex-start"}}>✕</button>
                 </div>

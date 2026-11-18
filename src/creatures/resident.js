@@ -72,7 +72,10 @@ export function fullnessWord(f) {
 export function nextStageIn(c) {
   const i = STAGES.indexOf(lifeStage(c));
   if (i >= STAGES.length - 1) return null;
-  return { stage: STAGES[i + 1], ms: Math.max(0, stageEnds(c)[i] * c.maxAge - c.age) };
+  // Skip a stage a species doesn't have (Thrummet goes straight from nymph to adult)
+  const ends = stageEnds(c); let j = i + 1;
+  while (j < 3 && ends[j] <= ends[j - 1]) j++;
+  return { stage: STAGES[j], ms: Math.max(0, ends[i] * c.maxAge - c.age) };
 }
 
 // A wild creature in the shared world: genes leaning the way its species does,

@@ -33,12 +33,30 @@ export const STATUS = {
   asleep:    { name: "Asleep",       icon: "💤", color: "#818cf8", stack: 1, extend: false, lingers: false },
   // Deep Crown: survives one knockout with 1 HP, and heals 5% a round
   deepcrown: { name: "Deep crown",   icon: "🌱", color: "#84cc16", stack: 1, extend: false, lingers: false, self: true },
+  // 2/3/4% of max health a round; Attack −25/35/45%
+  burn:      { name: "Burn",         icon: "🔥", color: "#f97316", stack: 3, lingers: true },
+  // 4/6/8% of max health each time it acts; outside battle it only bleeds while active on the vine
+  bleed:     { name: "Bleed",        icon: "🩸", color: "#dc2626", stack: 3, lingers: true },
+  // 25/35/45% chance to lose its action
+  paralysis: { name: "Paralysis",    icon: "⚡", color: "#eab308", stack: 3, lingers: true },
+  // Its own Fire moves −25%; Paralysis and Frost twice as likely to land on it
+  wet:       { name: "Wet",          icon: "💧", color: "#38bdf8", stack: 1, extend: true, lingers: true },
+  // Uses its strongest physical move by itself; Attack +30%, Defense −20%
+  berserk:   { name: "Berserk",      icon: "😡", color: "#ef4444", stack: 1, extend: false, lingers: false },
+  // Battle-only conditions a creature puts on itself
+  drift:     { name: "Drifting",     icon: "✨", color: "#fde68a", stack: 1, extend: false, lingers: false, self: true },
+  stalk:     { name: "Stalking",     icon: "👁️", color: "#a78bfa", stack: 1, extend: false, lingers: false, self: true },
+  decoy:     { name: "Dropped tail", icon: "🦎", color: "#d6d3d1", stack: 1, extend: false, lingers: false, self: true },
+  playdead:  { name: "Playing dead", icon: "💀", color: "#cbd5e1", stack: 1, extend: false, lingers: false, self: true },
   // Toxic Hide's coat: anything that hits it with a physical move may be poisoned
   toxichide: { name: "Toxic hide",   icon: "🛡️", color: "#c084fc", stack: 1, extend: true, lingers: false, self: true },
 };
 export const FEAR_CHANCE = [0, 0.2, 0.3, 0.4];
 export const BLIND_ACC = [1, 0.7, 0.6, 0.5];
 export const CONFUSE_CHANCE = [0, 0.33, 0.45, 0.55];
+export const PARALYSIS_CHANCE = [0, 0.25, 0.35, 0.45];
+export const BURN_DMG = [0, 0.02, 0.03, 0.04], BURN_ATK = [1, 0.75, 0.65, 0.55];
+export const BLEED_DMG = [0, 0.04, 0.06, 0.08];
 
 export const level = (fx, id) => (fx || []).filter(f => f.id === id).length;
 export const has = (fx, id) => (fx || []).some(f => f.id === id);
@@ -79,11 +97,15 @@ export function tickStatuses(c, ms, rate = 1, { home = false } = {}) {
   const list = c.statuses || [];
   if (!list.length) return c;
   const t = ms * rate;
-  let hp = c.hp ?? 1, diedOfPoison = false;
-  for (const s of list) if (s.id === "poison") hp -= 0.02 * Math.min(s.ms, t) / TURN_MS;
-  if (hp <= 0) { if (home) hp = 0.01; else { hp = 0; diedOfPoison = list.some(s => s.id === "poison"); } }
+  let hp = c.hp ?? 1, cause = null;
+  // Poison and burn keep hurting; bleeding only while it's active on the vine (rate 1, not home)
+  for (const s of list) {
+    const k = s.id === "poison" || s.id === "burn" ? 0.02 : s.id === "bleed" && rate === 1 && !home ? 0.04 : 0;
+    if (k) { const before = hp; hp -= k * Math.min(s.ms, t) / TURN_MS; if (hp <= 0 && before > 0) cause = s.id === "bleed" ? "bleeding" : s.id; }
+  }
+  if (hp <= 0) { if (home) { hp = 0.01; cause = null; } else hp = 0; }
   const statuses = list.map(s => ({ ...s, ms: s.ms - t })).filter(s => s.ms > 0);
-  return { ...c, hp: Math.min(c.hp ?? 1, hp), statuses, ...(diedOfPoison ? { diedOfPoison: true } : {}) };
+  return { ...c, hp: Math.min(c.hp ?? 1, hp), statuses, ...(cause ? { diedOfPoison: true, diedOf: cause } : {}) };
 }
 export const canHeal = c => !(c.statuses || []).some(s => s.id === "festering");
 // What the card shows: each status with its level and time left

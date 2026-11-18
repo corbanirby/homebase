@@ -46,6 +46,7 @@ export function StatusBadges({b}){
   for(const f of b.fx||[]){ const e=by.get(f.id)||{id:f.id,n:0,turns:0}; e.n++; e.turns=Math.max(e.turns,f.turns); by.set(f.id,e); }
   const items=[...by.values()].map(e=>{ const d=STATUS[e.id]||{}; return {key:e.id,icon:d.icon||"?",color:d.color||"#888",text:(d.name||e.id)+(e.n>1?" "+e.n:"")+(e.id==="knocked"?"":` · ${e.turns}`)}; });
   if(b.status&&BADGE_LEGACY[b.status]){ const[icon,color,text]=BADGE_LEGACY[b.status]; items.push({key:"legacy",icon,color,text}); }
+  if(b.underground) items.push({key:"ug",icon:"🕳️",color:"#a8a29e",text:"Underground"});
   if(!items.length) return null;
   return <div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"center",maxWidth:150}}>
     {items.map(i=><span key={i.key} style={{background:i.color+"33",border:`1px solid ${i.color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color:i.color,whiteSpace:"nowrap"}}>{i.icon} {i.text}</span>)}
@@ -84,6 +85,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   const setField=f=>{ fieldRef.current=f; setFieldState(f); };
   // Statuses Dawn Chorus has cleared from the whole team
   const curedRef=useRef(new Set());
+  // Pack Leader's Call: Attack stages for the whole team
+  const boostRef=useRef(0);
   // Single gate for every player action: blocks double taps before React re-renders
   function claimTurn(){
     if(phase!=="player_turn"||busyRef.current) return false;
@@ -118,6 +121,15 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   // After a turn's messages: someone fainted, or it's your turn again
   function settleTurn(){
     const p=playerRef.current, e=enemyRef.current;
+    // Play Dead fooled the wild one, or a wild Possumbra slipped away
+    if(p.foeLeaves||e.slipsAway){ setPhase("end"); setTimeout(()=>onEnd("flee",{...p,hp:Math.min(1,p.battleHp/p.maxHp)},null,0,battleResults(p)),1200); return; }
+    // Tail Flip: choose who comes in (the foe doesn't get a free hit)
+    if(p.flipOut&&p.battleHp>0){
+      const others=(battleInventory||[]).filter((c,i)=>i>0&&c&&(c.hp||0)>0.05);
+      const q={...p,flipOut:false}; setPlayer(q); playerRef.current=q;
+      if(others.length){ setPhase("flip_swap"); return; }
+      setLog(l=>[...l,"…but there's no one to swap in."]);
+    }
     if(e.battleHp<=0) setTimeout(()=>endBattle("win",p,e),300);
     else if(p.battleHp<=0){
       const remaining=(battleInventory||[]).filter((_,i)=>i>0&&battleInventory[i]&&(battleInventory[i].hp||0)>0.05);
@@ -134,7 +146,10 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   }
   function benchFor(c){
     const saved=benchRef.current.get(c.id);
-    if(!saved){ const cured=curedRef.current; return {b:makeBattler(cured.size?{...c,statuses:(c.statuses||[]).filter(x=>!cured.has(x.id))}:c,biome),rounds:0}; }
+    if(!saved){ const cured=curedRef.current, n=boostRef.current;
+      const b=makeBattler(cured.size?{...c,statuses:(c.statuses||[]).filter(x=>!cured.has(x.id))}:c,biome);
+      if(n) b.statMods={...b.statMods,atk:Math.min(4,n)};
+      return {b,rounds:0}; }
     return {b:catchUpBench(makeBattler(c,biome,saved),roundRef.current-saved.at),rounds:roundRef.current-saved.at};
   }
   // What the battle did to everyone you carry: statuses and stamina going back into the world
@@ -174,6 +189,10 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     const [first,...rest]=r.msgs;
     items.push({msg:first});
     // A song for the whole team: the ones on the bench (and the ones yet to come out) hear it too
+    if(mine&&r.newAttacker.teamBoost){
+      boostRef.current+=1;
+      for(const [k,v] of benchRef.current) benchRef.current.set(k,{...v,statMods:{...v.statMods,atk:Math.min(4,(v.statMods?.atk||0)+1)}});
+    }
     if(mine&&r.newAttacker.teamCure){
       const ids=r.newAttacker.teamCure; ids.forEach(id=>curedRef.current.add(id));
       for(const [k,v] of benchRef.current) benchRef.current.set(k,{...v,fx:(v.fx||[]).filter(f=>!ids.includes(f.id))});
@@ -197,7 +216,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     for(const m of [...l1.msgs,...l2.msgs]) items.push({msg:m});
     const rp=endOfRound(p), re=endOfRound(e);
     const f=fieldRef.current;
-    if(f){ const t=f.turns-1; if(t<=0){ items.push({msg:"The vines on the ground wither back.",applyState:()=>setField(null)}); fieldRef.current=null; } else setField({...f,turns:t}); }
+    if(f){ const t=f.turns-1; if(t<=0){ items.push({msg:f.id==="hotrocks"?"The rocks cool down.":"The vines on the ground wither back.",applyState:()=>setField(null)}); fieldRef.current=null; } else setField({...f,turns:t}); }
     for(const m of rp.msgs) items.push({msg:m});
     for(const m of re.msgs) items.push({msg:m});
     const apply=()=>{ setPlayer(rp.b); playerRef.current=rp.b; setEnemy(re.b); enemyRef.current=re.b; };
@@ -214,6 +233,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     const items=extraMsgs.map(m=>typeof m==='string'?{msg:m}:m);
     queueMove(items,r,currentPlayer,false);
     let p=r.newDefender, e=r.newAttacker;
+    if(e.slipsAway){ items.push({msg:`The wild ${speciesOf(wildCreature).name} gets away!`}); playerRef.current=p; enemyRef.current=e; afterQueueRef.current=null; setPending(items); return; }
     if(endsRound&&p.battleHp>0&&e.battleHp>0) ({p,e}=queueRoundEnd(items,p,e));
     playerRef.current=p; enemyRef.current=e;
     if(then) afterQueueRef.current=then;
@@ -223,11 +243,12 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   // The faster creature acts first. If the foe is quicker it moves, then you do (if you're still standing).
   function handleMove(move){
     if(!claimTurn())return;
+    if(player.charging){ const m=player.moves.find(x=>x.id===player.charging); if(m) move=m; }
     const u=usesRef.current[player.id]||(usesRef.current[player.id]={}); u[move.id]=(u[move.id]||0)+1;
     if(!goesFirst(player,enemy,fieldRef.current)){
       doEnemyTurn(enemy,player,[{msg:`The wild ${speciesOf(wildCreature).name} is quicker!`}],()=>{
         const p=playerRef.current, e=enemyRef.current;
-        if(p.battleHp<=0||e.battleHp<=0){ settleTurn(); return; }
+        if(p.battleHp<=0||e.battleHp<=0||e.slipsAway){ settleTurn(); return; }
         playerAct(move,p,e,false);
       },false);
       return;
@@ -236,13 +257,14 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   }
   function playerAct(move,player,enemy,thenFoe){
     const r1=executeBattleMove(player,enemy,move,fieldRef.current);
+    if(r1.newAttacker.foeLeaves) r1.msgs.push(`The wild ${speciesOf(wildCreature).name} loses interest and wanders off.`);
     if(r1.field!==fieldRef.current) setField(r1.field);
     const items=[];
     queueMove(items,r1,enemy,true);
     let p=r1.newAttacker, e=r1.newDefender;
-    if(e.battleHp<=0||p.battleHp<=0){ playerRef.current=p; enemyRef.current=e; setPending(items); return; }
-    // When the foe already moved this round, the round ends here
-    if(!thenFoe){ ({p,e}=queueRoundEnd(items,p,e)); playerRef.current=p; enemyRef.current=e; setPending(items); return; }
+    if(e.battleHp<=0||p.battleHp<=0||e.slipsAway){ playerRef.current=p; enemyRef.current=e; setPending(items); return; }
+    // When the foe already moved this round (or it fooled the foe, or flipped out), the round ends here
+    if(!thenFoe||p.flipOut||p.foeLeaves){ ({p,e}=queueRoundEnd(items,p,e)); playerRef.current=p; enemyRef.current=e; setPending(items); return; }
     playerRef.current=p; enemyRef.current=e;
     afterQueueRef.current=()=>doEnemyTurn(enemyRef.current,playerRef.current,[]);
     setPending(items);
@@ -372,16 +394,16 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                 style={{...btnStyle,background:"rgba(96,165,250,0.15)",border:"1.5px solid rgba(96,165,250,0.4)",borderRadius:8,padding:"7px 4px",color:"#60a5fa",fontSize:11,opacity:isTangled(player)?0.4:1}}>
                 🔄 SWAP<br/><span style={{fontSize:9,opacity:0.8}}>{isTangled(player)?"(tangled)":"(costs turn)"}</span>
               </button>
-              <button onClick={fleeBattle} disabled={isTangled(player)} onContextMenu={e=>e.preventDefault()}
-                style={{...btnStyle,background:"rgba(100,116,139,0.15)",border:"1.5px solid rgba(100,116,139,0.4)",borderRadius:8,padding:"7px 4px",color:"#94a3b8",fontSize:11,opacity:isTangled(player)?0.4:1}}>
-                🏃 FLEE{isTangled(player)&&<><br/><span style={{fontSize:9}}>(tangled)</span></>}
+              <button onClick={fleeBattle} disabled={isTangled(player)&&!player.tailDropped} onContextMenu={e=>e.preventDefault()}
+                style={{...btnStyle,background:"rgba(100,116,139,0.15)",border:"1.5px solid rgba(100,116,139,0.4)",borderRadius:8,padding:"7px 4px",color:"#94a3b8",fontSize:11,opacity:isTangled(player)&&!player.tailDropped?0.4:1}}>
+                🏃 FLEE{isTangled(player)&&!player.tailDropped&&<><br/><span style={{fontSize:9}}>(tangled)</span></>}
               </button>
             </div>
           </>
         )}
-        {phase==="forced_swap"&&(
+        {(phase==="forced_swap"||phase==="flip_swap")&&(
           <div>
-            <div style={{color:"#f87171",fontSize:12,marginBottom:8,fontWeight:"bold"}}>💀 Your creature fainted! Choose next:</div>
+            <div style={{color:phase==="flip_swap"?"#60a5fa":"#f87171",fontSize:12,marginBottom:8,fontWeight:"bold"}}>{phase==="flip_swap"?"🦞 Who comes in?":"💀 Your creature fainted! Choose next:"}</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
               {(battleInventory||[]).map((c,i)=>{
                 if(i===0||!c||c.fainted||(c.hp||0)<=0.05)return null;
