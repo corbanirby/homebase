@@ -48,7 +48,7 @@ export function StatusBadges({b}){
   if(b.status&&BADGE_LEGACY[b.status]){ const[icon,color,text]=BADGE_LEGACY[b.status]; items.push({key:"legacy",icon,color,text}); }
   if(b.underground) items.push({key:"ug",icon:"🕳️",color:"#a8a29e",text:"Underground"});
   if(!items.length) return null;
-  return <div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"center",maxWidth:150}}>
+  return <div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"flex-start",maxWidth:200}}>
     {items.map(i=><span key={i.key} style={{background:i.color+"33",border:`1px solid ${i.color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color:i.color,whiteSpace:"nowrap"}}>{i.icon} {i.text}</span>)}
   </div>;
 }
@@ -329,20 +329,20 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       {/* Battle field */}
       <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around",padding:"8px 16px"}}>
         <div style={{display:"flex",justifyContent:"flex-end",alignItems:"flex-end",gap:12}}>
-          <HpBar current={enemy.battleHp} max={enemy.maxHp} label={"Wild "+speciesOf(wildCreature).name} level={enemy.level} sex={wildCreature.sex}/>
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <StatusBadges b={enemy}/>
-            <BattleSprite creature={wildCreature} size={120} flipped={true} shake={shakeE}/>
+            <HpBar current={enemy.battleHp} max={enemy.maxHp} label={"Wild "+speciesOf(wildCreature).name} level={enemy.level} sex={wildCreature.sex}/>
           </div>
+          <BattleSprite creature={wildCreature} size={120} flipped={true} shake={shakeE}/>
         </div>
         {field&&FIELDS[field.id]?<div style={{textAlign:"center",color:"#a3e635",fontSize:12}} title={FIELDS[field.id].text}>{FIELDS[field.id].icon} {FIELDS[field.id].name} · {field.turns} {field.turns===1?"turn":"turns"}<div style={{fontSize:10,color:"#65a30d"}}>{FIELDS[field.id].text}</div></div>
           :<div style={{textAlign:"center",color:"rgba(255,255,255,0.07)",fontSize:26,letterSpacing:8}}>— vs —</div>}
         <div style={{display:"flex",justifyContent:"flex-start",alignItems:"flex-end",gap:12}}>
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+          <BattleSprite creature={activeCreature} size={120} shake={shakeP}/>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <StatusBadges b={player}/>
-            <BattleSprite creature={activeCreature} size={120} shake={shakeP}/>
+            <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level} sex={activeCreature.sex}/>
           </div>
-          <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level} sex={activeCreature.sex}/>
         </div>
       </div>
 
