@@ -1,6 +1,7 @@
 import { newId } from "../engine/ids.js";
 import { randomDNA } from "./dna.js";
 import { deriveMoves, levelUpMoves, initLearnset, hasLearnset } from "../battle/moves.js";
+import { ensureParts } from "./parts.js";
 import { XP_PER_LEVEL } from "../config.js";
 import { SPECIES, STAGES, lifeStage, stageEnds } from "./species.jsx";
 
@@ -34,7 +35,7 @@ export function makeResident({ col, row, sex, name, dna = null, species = "ramta
     fullness: 0.85 + Math.random() * 0.15, hp: 1, habitat: 1, level: 1, xp: 0,
     dcol: 0, drow: 0, wanderTimer: 0, state: "wander", targetId: null, biteTimer: 0, petAt: 0,
   };
-  return hasLearnset(c) ? initLearnset(c) : c;
+  return ensureParts(hasLearnset(c) ? initLearnset(c) : c);
 }
 
 // How well the patch it's on suits it, 0 to 1
@@ -91,7 +92,7 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
   c.level = typeof level === "function" ? level(c) : level; c.wild = true;
   c.fullness = 0.7 + Math.random() * 0.3;
   // Species with a move list know what a creature of its level and age would have learned
-  return hasLearnset(c) ? initLearnset(c) : c;
+  return ensureParts(hasLearnset(c) ? initLearnset(c) : c);
 }
 
 // Bring a creature up to a level, with the experience and moves it would have picked up on the way

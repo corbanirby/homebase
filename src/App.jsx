@@ -20,6 +20,7 @@ import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, 
 import { atlanta, areaKey, BIOME_NAMES, WORLD_V } from "./world/atlanta.js";
 import { deriveMoves, levelUpMoves, initLearnset, refreshMoves, hasLearnset, moveById, masteryTier, MASTERY, TYPE_COLORS } from "./battle/moves.js";
 import { moveEffectText } from "./battle/movelist.js";
+import { ensureParts, shownParts, hiddenParts, partName } from "./creatures/parts.js";
 import { tickStatuses, restoreStamina, statusSummary, staminaWord, TURN_MS, STATUS } from "./battle/statuses.js";
 import { BattleScreen } from "./battle/BattleScreen.jsx";
 import DPad from "./ui/DPad.jsx";
@@ -87,7 +88,7 @@ const seedsToFood=s=>{ const seeds=s.seeds||{}, food={...(s.food||{bogmoss:2,cat
   for(const k of Object.keys(seeds)) if(!PLANT_SPECIES[k]?.pod&&seeds[k]>0){ food[k]=(food[k]||0)+seeds[k]; moved=true; }
   return moved||s.seeds?{...s,food,seeds:{}}:s; };
 // Species with a move list (stage 9) get their moves from it the first time; the rest keep theirs
-const ensureMoves=c=>c.isEgg?c:hasLearnset(c)&&!c.learnsetV?initLearnset(c):refreshMoves(c);
+const ensureMoves=c=>c.isEgg?c:ensureParts(hasLearnset(c)&&!c.learnsetV?initLearnset(c):refreshMoves(c));
 // The shared world was redrawn bigger (and areas got levels): saved numbers start fresh, and a trip in progress starts back at your door
 const freshWorld=s=>{ if(s.world?.v===WORLD_V) return s;
   const trip=s.where==="out"&&s.trip?{...newTrip(),bag:s.trip.bag||[]}:s.trip;
@@ -134,6 +135,8 @@ const GENES=[
   ["elemental","Elemental",0.6,1.4,["Dull","Average","Brilliant"]],
   ["resistance","Resistance",0.6,1.4,["Thin","Average","Hardy"]],
   ["stamina","Stamina",0.6,1.4,["Winded","Average","Tireless"]],
+  ["mainColor","Main colour",0.6,1.4,["Shifted","Usual","Shifted"]],
+  ["accentColor","Accent colour",0.6,1.4,["Shifted","Usual","Shifted"]],
 ];
 const geneWord=(v,lo,hi,words)=>{ const t=(v-lo)/(hi-lo); return words[t<0.34?0:t>0.66?2:1]; };
 const condColor=v=>v>=0.85?"#86efac":v>=0.65?"#bef264":v>=0.45?"#facc15":"#f87171";
@@ -1280,6 +1283,12 @@ export default function Homebase(){
                     </div>
                   </>); })()}
                 {cardTab==="genes"&&<>
+                {c.parts&&(()=>{ const sh=shownParts(c.parts), hid=hiddenParts(c.parts); return (
+                  <div>
+                    <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Appearance</div>
+                    <div style={{color:"#b8c6a8",fontSize:12,lineHeight:1.5}}>{Object.entries(sh).map(([k,v])=>partName(k,v)).join(", ")}.</div>
+                    <div style={{color:"#6a7a5a",fontSize:11,marginTop:3}}>{hid.length?<>Carries, hidden: <span style={{color:"#c8e6a0"}}>{hid.map(h=>partName(h.locus,h.allele)).join(", ")}</span></>:"Carries nothing hidden."}</div>
+                  </div>); })()}
                 <div>
                   <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Genes</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 14px"}}>

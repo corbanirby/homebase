@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { XP_PER_LEVEL } from "../config.js";
-import { lifeStage, speciesOf, spriteImage, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
+import { lifeStage, speciesOf, creatureSprite, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
 import { levelUpMoves, TYPE_COLORS } from "./moves.js";
 import { moveEffectText, FIELDS } from "./movelist.js";
@@ -12,7 +12,7 @@ export function BattleSprite({creature,size=90,flipped=false,shake=false}){
   useSpritesLoaded();
   // Wild foe faces the player (front three-quarter); yours is seen from behind
   const st=lifeStage(creature), sp=speciesOf(creature);
-  const img=spriteImage(sp,st.id,flipped?"south-west":"north-east");
+  const img=creatureSprite(creature,st.id,flipped?"south-west":"north-east");
   const px=Math.round(size*Math.min(1.25,Math.max(0.75,creature.dna.size))*(0.55+0.45*st.scale));
   return <div style={{width:size,height:size,display:"flex",alignItems:"flex-end",justifyContent:"center",position:"relative"}}>
     <div style={{position:"absolute",bottom:2,width:px*0.7,height:px*0.16,borderRadius:"50%",background:"rgba(0,0,0,0.25)"}}/>

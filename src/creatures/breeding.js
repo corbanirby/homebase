@@ -3,13 +3,14 @@ import { randomDNA } from "./dna.js";
 import { SPECIES, lifeStage } from "./species.jsx";
 import { HOUR, DAY, habitatFit, conditionOf, pickName } from "./resident.js";
 import { deriveMoves, initLearnset, hasLearnset } from "../battle/moves.js";
+import { childParts } from "./parts.js";
 
 // ─── Genes in two copies ──────────────────────────────────────────────────────
 // Every gene comes in two copies, one from each parent. At birth one copy is
 // picked at random to show; the other stays hidden but can be passed on, so a
 // hidden copy can come back in a grandchild. Each copy passed on has a small
 // chance to mutate a little.
-export const GENE_KEYS = ["hue", "saturation", "size", "speed", "lifespan", "fertility", "strength", "aggression", "metabolism", "reproRate", "xpRate", "hpRange", "elemental", "resistance", "stamina"];
+export const GENE_KEYS = ["hue", "saturation", "size", "speed", "lifespan", "fertility", "strength", "aggression", "metabolism", "reproRate", "xpRate", "hpRange", "elemental", "resistance", "stamina", "mainColor", "accentColor"];
 const MUTATE_CHANCE = 0.05;
 function mutate(key, v) {
   if (Math.random() >= MUTATE_CHANCE) return v;
@@ -84,7 +85,7 @@ function makeEgg(mom, dad, col, row, clock) {
   for (const m of [pick(mom), pick(dad)]) if (m && !moves.some(x => x.id === m.id)) moves.push(m);
   return {
     id: newId(), type: "creature", isEgg: true, species: mom.species, motherId: mom.id, fatherId: dad.id,
-    laidBy: mom.name, laidAt: clock, known: true, genome: childGenome(mom, dad), eggMoves: moves,
+    laidBy: mom.name, laidAt: clock, known: true, genome: childGenome(mom, dad), parts: childParts(mom, dad), eggMoves: moves,
     generation: Math.max(mom.generation || 1, dad.generation || 1) + 1,
     incubation: 0, col, row, dna: mom.dna, name: null, hp: 1, fullness: 1, age: 0, maxAge: 1, level: 1,
     dcol: 0, drow: 0,
@@ -98,7 +99,7 @@ export function hatchEgg(egg, names = []) {
   const moves = egg.eggMoves?.length ? egg.eggMoves : deriveMoves(dna, sp.types);
   const baby = {
     id: egg.id, type: "creature", species: egg.species, name: pickName(names), sex: Math.random() < 0.5 ? "F" : "M",
-    col: egg.col, row: egg.row, dna, genome: egg.genome, shown, moves,
+    col: egg.col, row: egg.row, dna, genome: egg.genome, shown, moves, ...(egg.parts ? { parts: egg.parts } : {}),
     motherId: egg.motherId, fatherId: egg.fatherId, generation: egg.generation, bornAt: null,
     age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",
     fullness: 0.7, hp: 1, habitat: 1, level: 1, xp: 0,

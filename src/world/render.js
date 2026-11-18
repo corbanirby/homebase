@@ -2,7 +2,7 @@ import { TS } from "../config.js";
 import { PLANT_SPECIES } from "../plants/plants.js";
 import { POD_ICON_COLOR } from "../creatures/pods.js";
 import { TILES } from "./tiles.js";
-import { lifeStage, speciesOf, spriteImage, facingOf } from "../creatures/species.jsx";
+import { lifeStage, speciesOf, creatureSprite, facingOf } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
 
 // ─── Low top-down renderer ────────────────────────────────────────────────────
@@ -381,7 +381,7 @@ function drawCreature(ctx, c, tick, cam, focused) {
   if (c.isEgg) return drawEgg(ctx, c, tick, cam, focused);
   const x = c.col * TS - cam.x, footY = c.row * TS - cam.y + 6;
   const st = lifeStage(c), sp = speciesOf(c);
-  const img = spriteImage(sp, st.id, facingOf(c));
+  const img = creatureSprite(c, st.id, facingOf(c));
   const h = 50 * c.dna.size * st.scale * (sp.sizeMul || 1), r = h * 0.3;
   if (focused) { // the creature the Act button would reach
     ctx.globalAlpha = 0.55 + Math.sin(tick * 0.15) * 0.2; ctx.strokeStyle = "#fde68a"; ctx.lineWidth = 1.5;
