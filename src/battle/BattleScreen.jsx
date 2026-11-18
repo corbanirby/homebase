@@ -369,8 +369,9 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
             <button onClick={()=>setShowPods(false)} style={{...btnStyle,background:"transparent",border:"1px solid #334155",borderRadius:8,padding:"6px",color:"#94a3b8",fontSize:11}}>Back</button>
           </div>
         )}
-        {phase==="player_turn"&&!showSwap&&!showPods&&(
-          <>
+        {(phase==="player_turn"||phase==="message")&&!showSwap&&!showPods&&(
+          // While moves play out the buttons stay, greyed out and untappable
+          <div aria-disabled={phase!=="player_turn"} style={{opacity:phase==="player_turn"?1:0.45,pointerEvents:phase==="player_turn"?"auto":"none",transition:"opacity 0.15s"}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:6}}>
               {(()=>{ const ok=new Set(usableMoves(player).map(m=>m.id)); return player.moves.map(move=>{ const can=ok.has(move.id), fx=moveEffectText(move); return(
                 <button key={move.id} disabled={!can}
@@ -402,7 +403,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                 🏃 FLEE{isTangled(player)&&!player.tailDropped&&<><br/><span style={{fontSize:9}}>(tangled)</span></>}
               </button>
             </div>
-          </>
+          </div>
         )}
         {(phase==="forced_swap"||phase==="flip_swap")&&(
           <div>
@@ -460,7 +461,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
             </button>
           </div>
         )}
-        {phase!=="player_turn"&&(
+        {phase!=="player_turn"&&phase!=="message"&&(
           <div style={{textAlign:"center",color:"#475569",padding:12,fontSize:13}}>{phase==="end"?"Battle ended…":"…"}</div>
         )}
       </div>
