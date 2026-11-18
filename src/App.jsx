@@ -879,16 +879,6 @@ export default function Homebase(){
         </div>
       </div>
 
-      {/* Out in Atlanta: where you are and how strong the creatures are around here */}
-      {uiState.where==="out"&&(
-        <div style={{display:"flex",gap:6,padding:"3px 8px",height:30,flexShrink:0,background:"rgba(0,0,0,0.35)",alignItems:"center",overflowX:"auto"}}>
-          {[["📍",uiState.place?.biome||"Atlanta"],["⚔",`Around Lv${uiState.place?.lv||1}`],["🐾",`${creatures.filter(c=>vine.includes(c.id)&&c.hp>0.05).length}/${vine.length} ready`],["🎒",`${(uiState.bag||[]).length}/${BAG_MAX}`]].map(([icon,val])=>(
-            <div key={icon} style={{flex:"1 1 0",minWidth:0,display:"flex",alignItems:"center",justifyContent:"center",gap:4,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(200,230,160,0.12)",borderRadius:6,color:"#dbeac8",fontSize:11,padding:"3px 4px",whiteSpace:"nowrap"}}>
-              <span>{icon}</span><span style={{overflow:"hidden",textOverflow:"ellipsis"}}>{val}</span>
-            </div>
-          ))}
-        </div>
-      )}
       {/* The patch you're standing on: tap one to see it across the land */}
       {uiState.where!=="out"&&<div style={{display:"flex",gap:6,padding:"3px 8px",height:30,flexShrink:0,background:"rgba(0,0,0,0.35)",alignItems:"center",overflowX:"auto"}}>
         {[
@@ -971,8 +961,8 @@ export default function Homebase(){
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setPanel("bag")} onContextMenu={e=>e.preventDefault()} aria-label="Bag"
-                style={{...btnBase,width:58,height:40}}>
-                <span style={{fontSize:14}}>🎒</span>
+                style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1}}>
+                <span style={{fontSize:14}}>🎒</span><span style={{fontSize:9,color:"#fcd34d"}}>{(uiState.bag||[]).length}/{BAG_MAX}</span>
               </button>
               <button disabled={uiState.where==="out"} onClick={()=>{setShowSeeds(v=>!v);setUiState(u=>({...u,garden:gardenInfo(),food:stateRef.current?.food||{}}));}} onContextMenu={e=>e.preventDefault()} aria-label="Seeds"
                 style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1,opacity:uiState.where==="out"?0.35:1,background:showSeeds?"rgba(134,239,172,0.16)":btnBase.background,border:showSeeds?"1.5px solid rgba(134,239,172,0.5)":btnBase.border}}>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { XP_PER_LEVEL } from "../config.js";
 import { lifeStage, speciesOf, creatureSprite, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
@@ -71,6 +71,9 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   const[showSwap,setShowSwap]=useState(false);
   const[participantIds,setParticipantIds]=useState(new Set([playerCreature.id])); // for XP split
   const logRef=useRef(null);
+  // The action panel keeps the height of the move buttons, so the log doesn't jump while the foe moves
+  const actRef=useRef(null); const[actH,setActH]=useState(0);
+  useLayoutEffect(()=>{ if(phase==="player_turn"&&!showSwap&&!showPods&&actRef.current){ const h=actRef.current.offsetHeight; if(h>actH) setActH(h); } });
   const playerRef=useRef(player);
   const busyRef=useRef(false);        // true from the moment you act until your next turn starts
   const afterQueueRef=useRef(null);   // runs once the current messages finish (e.g. the foe's turn)
@@ -352,7 +355,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       </div>
 
       {/* Actions */}
-      <div style={{background:"#0f172a",borderTop:"1px solid #1e293b",padding:"8px 10px"}}>
+      <div ref={actRef} style={{background:"#0f172a",borderTop:"1px solid #1e293b",padding:"8px 10px",minHeight:actH||undefined,boxSizing:"border-box"}}>
         {phase==="player_turn"&&showPods&&(
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
             <div style={{color:"#fbbf24",fontSize:11}}>Open which pod? A pod that suits it works better.</div>
