@@ -20,6 +20,8 @@ How creature sprites are made and added. Ramtarug is the only species with real 
 
 In `src/creatures/species.jsx`, the species entry has `art:"<id>"` (draw the placeholder). Replace it with `path:"sprites/<id>"` (load files), the way Ramtarug's entry does. Check Ramtarug's entry for the exact form before changing it. Every stage and direction file must exist, or that view shows nothing.
 
+Also update the species' `palette` in `species.jsx` to match the new sprite's colour ramps (main body colour and accent, as a centre hue in degrees, a band width, a minimum saturation, and how far creatures may turn it; see Ramtarug's), so colour genes recolour the right pixels. And when the final sprite is picked, write its founder part genes in `src/creatures/parts.js` (`FOUNDERS`) to match what's drawn; add new part options to `LOCI` if the species needs them (a bird's bill, wings, crest).
+
 Then run the game locally (`npm install`, `npm run dev`, open the printed address with `?debug`), look at the creature on the map (walk around it: all 8 directions) and in a battle, then commit and push to `main`. GitHub Pages publishes about a minute later; check with `gh api repos/corbanirby/homebase/actions/runs`.
 
 ## Species notes (what to draw)
