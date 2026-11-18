@@ -223,7 +223,9 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     for(const m of rp.msgs) items.push({msg:m});
     for(const m of re.msgs) items.push({msg:m});
     const apply=()=>{ setPlayer(rp.b); playerRef.current=rp.b; setEnemy(re.b); enemyRef.current=re.b; };
-    if(items.length>start){ const first=items[start], prev=first.applyState; items[start]={...first,applyState:()=>{ if(prev) prev(); apply(); }}; }
+    // Applied with the first end-of-round message, or (with none) after the last move message, so the move's own update can't undo the countdown
+    const at=items.length>start?start:items.length-1;
+    if(at>=0){ const it=items[at], prev=it.applyState; items[at]={...it,applyState:()=>{ if(prev) prev(); apply(); }}; }
     else apply();
     return {p:rp.b,e:re.b};
   }
