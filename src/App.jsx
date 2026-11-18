@@ -95,6 +95,13 @@ const freshWorld=s=>{ if(s.world?.v===WORLD_V) return s;
   return {...s,world:makePops(),trip}; };
 const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:(s0.creatures||[]).map(c=>ensureMoves(ensureGenome(c)))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
+// Saves hit by the old catch-up bug can have two creatures sharing an id: the later ones get new ids
+// (the vine, bag and pods keep pointing at the first)
+const fixDuplicateIds=s=>{
+  const seen=new Set(); let changed=false;
+  const creatures=(s.creatures||[]).map(c=>{ if(!seen.has(c.id)){ seen.add(c.id); return c; } changed=true; const id=newId(); seen.add(id); return {...c,id,mateId:null,court:0}; });
+  return changed?{...s,creatures}:s;
+};
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
   const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
@@ -206,12 +213,13 @@ export default function Homebase(){
     const d=readSave(); if(!d) { setScreen("title"); return; }
     landRef.current=d.land;
     const away=Date.now()-(d.savedAt||Date.now());
-    const {state,report}=advanceAway(withTripFields({...d.state,vine:d.state.vine||[],events:[],floats:[]}),d.land,away,speedRef.current);
+    // The id counter comes back first, so eggs and babies made while catching up get fresh ids
+    const ds=d.state, maxId=[...(ds.creatures||[]),...(ds.plants||[]),...(ds.pods||[]),...(ds.remains||[]),...(ds.remembered||[]),...(ds.trip?.wilds||[])].reduce((m,e)=>Math.max(m,typeof e.id==="number"?e.id:0),0);
+    setNextId(Math.max(d.nextId||1,maxId+1));
+    const {state,report}=advanceAway(withTripFields(fixDuplicateIds({...d.state,vine:d.state.vine||[],events:[],floats:[]})),d.land,away,speedRef.current);
     const map=deriveMap(d.land);
     mapRef.current=map; groundRef.current=buildGround(map);
     stateRef.current=state; tickRef.current=0;
-    const maxId=[...state.creatures,...state.plants,...(state.trip?.wilds||[])].reduce((m,e)=>Math.max(m,e.id||0),0);
-    setNextId(Math.max(d.nextId||1,maxId+1));
     refreshUi();
     if(report&&away>=60000&&(state.where!=="out"||report.lines.length)) setAwayReport(report);
     setScreen("game");
