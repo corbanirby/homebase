@@ -411,7 +411,7 @@ export default function Homebase(){
     const vine=(s.vine||[]).filter(id=>s.creatures.some(c=>c.id===id&&!c.isEgg));
     if(!vine.length){ addFloat("Put a creature on your vine first","#facc15"); return; }
     const now=Date.now();
-    const packed=[...new Set([...(s.pack||[]),...(s.holding!=null?[s.holding]:[])])].filter(id=>s.creatures.some(c=>c.id===id&&c.isEgg)).slice(0,BAG_MAX);
+    const packed=[...new Set([...(s.pack||[]),...(s.holding!=null?[s.holding]:[])])].filter(id=>s.creatures.some(c=>c.id===id)&&!vine.includes(id)).slice(0,BAG_MAX);
     const trip={...newTrip(now),bag:packed};
     stateRef.current={...s,where:"out",vine,pack:[],holding:null,trip,world:regrowPops(s.world||makePops(),now,speedRef.current),floats:[]};
     if(!outGroundRef.current) outGroundRef.current=buildGround(atlanta().tiles);
@@ -606,7 +606,7 @@ export default function Homebase(){
     }
     const vine=s.vine||[];
     const next=vine.includes(id)?vine.filter(v=>v!==id):vine.length<VINE_MAX?[...vine,id]:vine;
-    stateRef.current={...s,vine:next}; refreshUi(); saveNow();
+    stateRef.current={...s,vine:next,pack:next.includes(id)?(s.pack||[]).filter(x=>x!==id):s.pack||[]}; refreshUi(); saveNow();
   };
   // The first creature on the vine leads into battle (or the first healthy one after it)
   const makeLead=id=>{
@@ -634,9 +634,18 @@ export default function Homebase(){
   };
   // Eggs: pick one up to move it, or pack it to take out on your next trip
   const pickUpEgg=id=>{ const s=stateRef.current; if(s.where==="out") return; stateRef.current={...s,holding:id}; setCardId(null); addFloat("Carrying an egg","#e2e8f0"); refreshUi(); };
+  // Creatures can be packed too (to release somewhere, or bring a spare): they ride in the bag in their pod
   const togglePack=id=>{
-    const s=stateRef.current, pk=s.pack||[];
-    stateRef.current={...s,pack:pk.includes(id)?pk.filter(x=>x!==id):pk.length<BAG_MAX?[...pk,id]:pk}; refreshUi(); saveNow();
+    let s=stateRef.current; const pk=s.pack||[];
+    if(pk.includes(id)){ stateRef.current={...s,pack:pk.filter(x=>x!==id)}; refreshUi(); saveNow(); return; }
+    if(pk.length>=BAG_MAX) return;
+    const c=s.creatures.find(o=>o.id===id); if(!c) return;
+    if(!c.isEgg&&!(s.pods||[]).some(p=>p.creatureId===id)){
+      const pod=bestPod(s.pods||[],c.species);
+      if(!pod){ addFloat("No empty pod for it. Grow marsh pods to get more.","#facc15"); refreshUi(); return; }
+      s={...s,pods:s.pods.map(p=>p.id===pod.id?{...p,creatureId:id}:p)};
+    }
+    stateRef.current={...s,pack:[...pk,id],vine:(s.vine||[]).filter(v=>v!==id)}; refreshUi(); saveNow();
   };
   const[choosingMate,setChoosingMate]=useState(false);
   const[cardTab,setCardTab]=useState("care"); const swipeRef=useRef(null);
@@ -1024,7 +1033,7 @@ export default function Homebase(){
                     style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid "+(vine.includes(c.id)?"rgba(134,239,172,0.35)":"#1e261a"),borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"left",fontFamily:"Georgia,serif",touchAction:"manipulation"}}>
                     <CreatureIcon c={c} size={40}/>
                     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:3}}>
-                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· Lv {c.level||1} · {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:vine[0]===c.id?"#fde68a":"#86efac",fontSize:10}}>{vine[0]===c.id?" · ★ lead":" · on vine"}</span>}{(uiState.bag||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · in bag</span>}</div>
+                      <div style={{color:"#e2e8f0",fontSize:13}}>{c.name} <span style={{color:c.sex==="F"?"#f9a8d4":"#93c5fd"}}>{c.sex==="F"?"♀":"♂"}</span> <span style={{color:"#6b7a5e",fontSize:11}}>· Lv {c.level||1} · {lifeStage(c).label}</span>{vine.includes(c.id)&&<span style={{color:vine[0]===c.id?"#fde68a":"#86efac",fontSize:10}}>{vine[0]===c.id?" · ★ lead":" · on vine"}</span>}{(uiState.bag||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · in bag</span>}{(uiState.pack||[]).includes(c.id)&&<span style={{color:"#fbbf24",fontSize:10}}> · packed</span>}</div>
                       <div style={{display:"flex",alignItems:"center",gap:6}}>
                         <span style={{color:"#6b7a5e",fontSize:10,width:44}}>Fullness</span>{bar(c.fullness,c.fullness>=HUNGRY_AT?"#86efac":c.fullness>=WEAK_AT?"#facc15":"#f87171")}
                       </div>
@@ -1378,6 +1387,11 @@ export default function Homebase(){
                   style={{...btnBase,touchAction:"manipulation",height:40,fontSize:13,opacity:!onVine&&vine.length>=VINE_MAX?0.45:1,background:onVine?"rgba(134,239,172,0.14)":btnBase.background,border:"1.5px solid "+(onVine?"rgba(134,239,172,0.5)":"rgba(200,230,160,0.2)")}}>
                   {onVine?"On your vine · tap to take off":vine.length>=VINE_MAX?"Your vine is full (6)":`Put on your vine (${vine.length}/${VINE_MAX})`}
                 </button>}
+                {uiState.where!=="out"&&(()=>{ const packed=(uiState.pack||[]).includes(c.id), full=!packed&&(uiState.pack||[]).length>=BAG_MAX; return(
+                <button onClick={()=>togglePack(c.id)} disabled={full}
+                  style={{...btnBase,touchAction:"manipulation",height:40,fontSize:13,opacity:full?0.45:1,background:packed?"rgba(251,191,36,0.14)":btnBase.background,border:"1.5px solid "+(packed?"rgba(251,191,36,0.5)":"rgba(200,230,160,0.2)")}}>
+                  🎒 {packed?"In your bag next trip · tap to unpack":full?`Your bag is full (${BAG_MAX})`:`Take in your bag next trip (${(uiState.pack||[]).length}/${BAG_MAX})`}
+                </button>); })()}
                 </>}
               </div>
             </div>

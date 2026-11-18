@@ -400,7 +400,7 @@ Based on the brown thrasher (Georgia's state bird): rust-brown, streaked cream b
 
 | Level | Stage | Move | Type | Kind | Power | Acc | Stamina | Effect |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | — | Peck | Normal | Physical | 35 | 100% | 3 | 12% crit |
+| 1 | — | Peck | Air | Physical | 35 | 100% | 3 | 12% crit |
 | 5 | — | Leaf Flick | Normal | Physical | 25 | 100% | 4 | 20% Blind, 2 turns |
 | 9 | — | Wing Attack | Air | Physical | 45 | 100% | 5 | — |
 | 14 | — | Double Phrase | Air | Elemental | 25 ×2 | 95% | 8 | Hits twice; each hit can crit |
@@ -572,7 +572,7 @@ The apex hunter: strong, long-lived, rare. Runs prey down, yip-howls at dusk, an
 
 ### Draft decisions (November 17)
 
-- **Shared generic moves:** plain actions are reused across species (each with one small quirk); unique moves are kept for signature behaviour. Pool so far: Bump (35, plain), Bite (40, 5% Fear), Peck (35, 12% crit), Pinch (35, 10% Bleed 2 turns), Scratch (35, 10% crit, 5% Bleed), Dig (two turns: underground, can't be hit, then erupts), Splash (Water), and basic Electric moves usable by any Electric creature (names to pick, e.g. Zap and Shock).
+- **Shared generic moves:** plain actions are reused across species (each with one small quirk); unique moves are kept for signature behaviour. Pool so far: Bump (35, plain), Bite (40, 5% Fear), Peck (Air, 35, 12% crit), Pinch (35, 10% Bleed 2 turns), Scratch (35, 10% crit, 5% Bleed), Dig (two turns: underground, can't be hit, then erupts), Splash (Water), and basic Electric moves usable by any Electric creature (names to pick, e.g. Zap and Shock).
 - **Type can change by life stage:** Thrummet is Bug/Earth as a nymph and Bug/Air as an adult (type chart and own-type bonus follow the current type).
 - **Life-stage strength can vary by species** (70/85/100% is the default).
 - **Thrummet:** Mud Burst → **Emergence**; **Molt** becomes an Air move.
@@ -614,3 +614,16 @@ How each species moves, rests, forages, hides and reacts to you, built after the
   - **At home:** birds need trees to perch in.
   - **Battle:** everyone stays standing for now; airborne effects in battle (e.g. Air creatures harder to reach with Earth moves) may come later.
 - Other behaviours to cover: Possumbra playing dead outside battle, Clattershell digging, predators hunting prey.
+
+
+## Playtest changes (Nov 18)
+
+- **Statuses were too weak** (short and rarely landing), so every status move was retuned. The move tables above show the first drafts; `src/battle/movelist.js` has the current numbers. The rule:
+  - Support moves (no damage): 70–100% chance, 4–6 turns.
+  - Damaging moves known for their status (Sour Spit, Taproot, Hot Stone, Splash…): 40–60%, 5–8 turns.
+  - Damaging moves with a status as a side effect: 25–35%, 4–6 turns.
+  - Basic shared moves (Bite, Pinch, Scratch, Zap, Flint Strike): 10–15%, 3 turns.
+  - Knocked down is unchanged (one turn; Ram, Skullcrack, Topple and the like keep their chances). Statuses a creature puts on itself are unchanged.
+- **Peck is Air** (only birds learn it).
+- **Packing creatures:** at home, a creature's card has "Take in your bag next trip". It takes its pod and a bag spot (shared with packed eggs), comes off the vine, and is in your bag when you go out: to release it somewhere, bring a spare, and so on.
+- The info bar at the top while out is gone; the bag button shows the bag count.
