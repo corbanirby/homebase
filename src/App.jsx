@@ -10,7 +10,7 @@ import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./worl
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
 import { dnaColor } from "./creatures/dna.js";
 import { makePlayer } from "./creatures/factory.js";
-import { makeResident, pickName, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
+import { makeResident, pickName, uniqueNames, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
 import { PLANT_SPECIES, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate } from "./creatures/breeding.js";
@@ -56,7 +56,7 @@ function advanceAway(state,land,away,speed){
     const inBag=new Set(state.trip?.bag||[]); let pods=state.pods||[];
     const aged={...state,clock:(state.clock||0)+ms,creatures:state.creatures.map(c=>{
       if(!carried.has(c.id)) return c;
-      let n=ageCarried(c,Math.min(ms,30*DAY),inBag.has(c.id));
+      let n=ageCarried(c,Math.min(ms,30*DAY),inBag.has(c.id),state.creatures);
       // On the vine it eats the food packed in its pod as it gets hungry
       const pod=pods.find(p=>p.creatureId===c.id);
       if(!n.isEgg&&!inBag.has(c.id)&&pod&&pod.food>0&&(n.fullness<0.6||n.starving>0)){
@@ -94,7 +94,7 @@ const ensureMoves=c=>c.isEgg?c:ensureParts(hasLearnset(c)&&!c.learnsetV?initLear
 const freshWorld=s=>{ if(s.world?.v===WORLD_V) return s;
   const trip=s.where==="out"&&s.trip?{...newTrip(),bag:s.trip.bag||[]}:s.trip;
   return {...s,world:makePops(),trip}; };
-const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:(s0.creatures||[]).map(c=>migrateLeveling(ensureMoves(ensureGenome(c))))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:uniqueNames((s0.creatures||[]).map(c=>migrateLeveling(ensureMoves(ensureGenome(c)))))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Saves hit by the old catch-up bug can have two creatures sharing an id: the later ones get new ids
 // (the vine, bag and pods keep pointing at the first)

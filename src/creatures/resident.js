@@ -16,10 +16,31 @@ export const VINE_MAX = 6;
 const NAMES = ["Pip","Moss","Bramble","Fen","Tansy","Reed","Bo","Nettle","Wren","Juniper","Sorrel","Clover",
   "Burdock","Teasel","Puck","Marlo","Quill","Hazel","Tumble","Rook","Sedge","Fig","Pebble","Willow",
   "Thistle","Mallow","Kip","Rune","Ember","Lark","Bryn","Oaky","Dune","Cress","Sprig","Tuck"];
-export function pickName(taken = []) {
+// Names are unique among your creatures. A baby is sometimes named after a parent (Pip II, Pip III…);
+// when every name is taken, numbered names carry on.
+const ROMAN = ["", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
+export const baseName = n => (n || "").replace(/ [IVX]+$/, "");
+function numbered(base, taken, from = 1) {
+  for (let i = from; i < ROMAN.length; i++) { const n = i ? base + " " + ROMAN[i] : base; if (!taken.includes(n)) return n; }
+  return base + " " + (taken.length + 2);
+}
+export const AFTER_PARENT = 0.2;
+export function pickName(taken = [], parentNames = []) {
+  const ps = parentNames.filter(Boolean);
+  if (ps.length && Math.random() < AFTER_PARENT) return numbered(baseName(ps[Math.floor(Math.random() * ps.length)]), taken);
   const free = NAMES.filter(n => !taken.includes(n));
-  const pool = free.length ? free : NAMES;
-  return pool[Math.floor(Math.random() * pool.length)];
+  if (free.length) return free[Math.floor(Math.random() * free.length)];
+  return numbered(NAMES[Math.floor(Math.random() * NAMES.length)], taken);
+}
+// Older saves can have two with one name: the later ones get a number
+export function uniqueNames(creatures) {
+  const taken = []; let changed = false;
+  const out = creatures.map(c => {
+    if (c.isEgg || !c.name) return c;
+    if (!taken.includes(c.name)) { taken.push(c.name); return c; }
+    changed = true; const name = numbered(baseName(c.name), [...taken, ...creatures.map(o => o.name)]); taken.push(name); return { ...c, name };
+  });
+  return changed ? out : creatures;
 }
 
 export function makeResident({ col, row, sex, name, dna = null, species = "ramtarug", clock = 0 }) {

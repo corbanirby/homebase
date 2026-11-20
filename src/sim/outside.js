@@ -108,8 +108,11 @@ export function newTrip(now = Date.now()) {
 export const VINE_HUNGER = 0.25; // creatures you carry are held in a light hibernation: a quarter as hungry
 // Creatures in the bag are sealed in their pods and fully asleep: no hunger, aging at half speed
 export const BAG_AGING = 0.5;
-export function ageCarried(c, ms, inBag = false) {
-  if (c.isEgg) { const e = incubateCarried(c, ms); return e.incubation >= 1 ? hatchEgg(e) : e; }
+export function ageCarried(c, ms, inBag = false, all = []) {
+  if (c.isEgg) {
+    const e = incubateCarried(c, ms); if (e.incubation < 1) return e;
+    return hatchEgg(e, all.filter(o => !o.isEgg).map(o => o.name), [e.motherId, e.fatherId].map(id => all.find(o => o.id === id)?.name));
+  }
   // Statuses and stamina run on the same clock: half speed asleep in the bag, normal on the vine
   if (inBag) { const age = c.age + ms * BAG_AGING; return restoreStamina(tickStatuses({ ...c, age, stageId: lifeStage({ age, maxAge: c.maxAge, species: c.species }).id }, ms, 0.5), ms, 0.5); }
   const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge, species: c.species });
@@ -152,7 +155,7 @@ export function simulateOutside(state, tick, input, dtMs) {
   let pods = state.pods || [];
   const creatures = state.creatures.map(c => {
     if (!carried.has(c.id)) return c;
-    let n = ageCarried(c, dtMs, inBag.has(c.id));
+    let n = ageCarried(c, dtMs, inBag.has(c.id), state.creatures);
     // Hungry on the vine: it eats from the food packed in its pod
     if (!n.isEgg && !inBag.has(c.id) && n.fullness < 0.6) {
       const pod = pods.find(p => p.creatureId === c.id);

@@ -92,13 +92,13 @@ function makeEgg(mom, dad, col, row, clock) {
   };
 }
 // The egg hatches: one copy of each gene is picked to show, and the baby gets a name
-export function hatchEgg(egg, names = []) {
+export function hatchEgg(egg, names = [], parentNames = []) {
   const sp = SPECIES[egg.species] || SPECIES.ramtarug;
   const shown = {}, dna = {};
   for (const k of GENE_KEYS) { shown[k] = Math.random() < 0.5 ? 0 : 1; dna[k] = egg.genome[k][shown[k]]; }
   const moves = egg.eggMoves?.length ? egg.eggMoves : deriveMoves(dna, sp.types);
   const baby = {
-    id: egg.id, type: "creature", species: egg.species, name: pickName(names), sex: Math.random() < 0.5 ? "F" : "M",
+    id: egg.id, type: "creature", species: egg.species, name: pickName(names, parentNames), sex: Math.random() < 0.5 ? "F" : "M",
     col: egg.col, row: egg.row, dna, genome: egg.genome, shown, moves, ...(egg.parts ? { parts: egg.parts } : {}),
     motherId: egg.motherId, fatherId: egg.fatherId, generation: egg.generation, bornAt: null,
     age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",
@@ -168,7 +168,8 @@ export function stepBreeding(creatures, land, ms, clock, { away = false, nest = 
     const stalled = k === 0 ? (e.stalled || 0) + ms : 0;
     if (stalled >= 3 * breedParams(e.species).incubationMs) { events.push({ type: "eggFailed", laidBy: e.laidBy, col: e.col, row: e.row }); return null; }
     const inc = Math.min(1, e.incubation + (ms / breedParams(e.species).incubationMs) * k);
-    if (inc >= 1) { const baby = hatchEgg({ ...e, incubation: 1 }, names); names.push(baby.name); events.push({ type: "hatched", name: baby.name, col: e.col, row: e.row, species: e.species }); return baby; }
+    if (inc >= 1) { const parentNames = [e.motherId, e.fatherId].map(id => list.find(o => o && o.id === id)?.name);
+      const baby = hatchEgg({ ...e, incubation: 1 }, names, parentNames); names.push(baby.name); events.push({ type: "hatched", name: baby.name, col: e.col, row: e.row, species: e.species }); return baby; }
     return { ...e, incubation: inc, stalled };
   }).filter(Boolean);
   return { creatures: list, events };
