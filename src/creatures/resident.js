@@ -13,9 +13,7 @@ export const HUNGRY_AT = 0.6;         // below this it goes looking for food
 export const WEAK_AT = 0.15;          // below this it's too weak to do much
 export const VINE_MAX = 6;
 
-const NAMES = ["Pip","Moss","Bramble","Fen","Tansy","Reed","Bo","Nettle","Wren","Juniper","Sorrel","Clover",
-  "Burdock","Teasel","Puck","Marlo","Quill","Hazel","Tumble","Rook","Sedge","Fig","Pebble","Willow",
-  "Thistle","Mallow","Kip","Rune","Ember","Lark","Bryn","Oaky","Dune","Cress","Sprig","Tuck"];
+const NAMES = ["Pip","Moss","Bramble","Fen","Tansy","Reed","Bo","Nettle","Wren","Juniper","Sorrel","Clover","Burdock","Teasel","Puck","Marlo","Quill","Hazel","Tumble","Rook","Sedge","Fig","Pebble","Willow","Thistle","Mallow","Kip","Rune","Ember","Lark","Bryn","Oaky","Dune","Cress","Sprig","Tuck","Alder","Aster","Basil","Birch","Bramley","Briar","Brook","Bracken","Cedar","Chicory","Cinder","Clove","Copper","Cricket","Dill","Dock","Dusk","Elm","Fable","Fennel","Finch","Flax","Gale","Ginger","Gorse","Heath","Heather","Hollis","Holly","Hops","Ivy","Jasper","Juno","Kestrel","Laurel","Linden","Loam","Lupin","Maple","Marigold","Marsh","Merritt","Mint","Myrtle","Nutmeg","Olive","Orrin","Otter","Parsley","Pepper","Perrin","Plum","Poppy","Quince","Rafe","Rowan","Rue","Rush","Saffron","Starling","Tamsin","Tarragon","Thyme","Toby","Tilly","Umber","Vale","Vetch","Wicker","Winnow","Yarrow","Yew","Acorn","Barley","Beck","Bracket","Bunting","Burr","Cobble","Cotton","Crane","Dabble","Darby","Fallow","Fernley","Gilly","Glen","Gully","Haddie","Hamish","Ingle","Jory","Kit","Lichen","Mabel","Moor","Nell","Nib","Ollie","Osier","Pell","Pickle","Quinn","Ripple","Robin","Rosco","Rufus","Scout","Skipper","Sloe","Squill","Tibby","Timber","Truffle","Tully","Waddle","Whit","Wynn","Yancy","Zinnia"];
 // Names are unique among your creatures. A baby is sometimes named after a parent (Pip II, Pip III…);
 // when every name is taken, numbered names carry on.
 const ROMAN = ["", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
@@ -25,9 +23,35 @@ function numbered(base, taken, from = 1) {
   return base + " " + (taken.length + 2);
 }
 export const AFTER_PARENT = 0.2;
-export function pickName(taken = [], parentNames = []) {
+// Hint names: a creature with a standout gene (top or bottom 5% of its range) has an even chance of a
+// name that hints at it. The most extreme gene wins. So a Dart is always fast, but not every fast one is a Dart.
+const HINTS = {
+  speed:      { range: [0.6, 1.4], high: ["Dart", "Flick", "Zip", "Swift", "Zephyr", "Skitter", "Jett"], low: ["Dawdle", "Plod", "Mosey", "Tarry", "Lolly", "Puddle"] },
+  size:       { range: [0.7, 1.3], high: ["Boulder", "Bulk", "Moose", "Bruno", "Hefty", "Goliath"], low: ["Runt", "Wee", "Button", "Pipsqueak", "Teeny", "Peanut", "Smidge"] },
+  strength:   { range: [0.4, 1.0], high: ["Knuckle", "Rocco", "Butch", "Thump", "Bash"], low: ["Twig", "Wisp", "Noodle", "Feather", "Dandy"] },
+  hpRange:    { range: [0.5, 1.5], high: ["Oak", "Hardy", "Burl", "Tuff", "Bjorn"], low: ["Petal", "Dewey", "Bubbles", "Crumb", "Tinsel"] },
+  elemental:  { range: [0.6, 1.4], high: ["Blaze", "Storm", "Torrent", "Sparky", "Flare", "Volta"], low: ["Fizzle", "Dudley", "Puff", "Sputter"] },
+  resistance: { range: [0.6, 1.4], high: ["Bastion", "Warden", "Brick", "Tortuga"], low: ["Patch", "Tatters", "Nicky"] },
+  lifespan:   { range: [0.7, 1.3], high: ["Sage", "Methuselah", "Everett", "Grandby"], low: ["Mayfly", "Blink", "Comet", "Flit"] },
+  aggression: { range: [0.2, 1.0], high: ["Fury", "Scrap", "Rowdy", "Ruckus", "Spike"], low: ["Mellow", "Lulu", "Pax", "Honey", "Dozy"] },
+};
+export const HINT_EDGE = 0.05, HINT_CHANCE = 0.5;
+function hintName(dna, taken) {
+  if (!dna || Math.random() >= HINT_CHANCE) return null;
+  let best = null;
+  for (const [k, h] of Object.entries(HINTS)) {
+    const v = dna[k]; if (v == null) continue;
+    const p = (v - h.range[0]) / (h.range[1] - h.range[0]), x = p >= 1 - HINT_EDGE ? p - (1 - HINT_EDGE) : p <= HINT_EDGE ? HINT_EDGE - p : -1;
+    if (x >= 0 && (!best || x > best.x)) best = { x, list: p > 0.5 ? h.high : h.low };
+  }
+  if (!best) return null;
+  const free = best.list.filter(n => !taken.includes(n));
+  return free.length ? free[Math.floor(Math.random() * free.length)] : numbered(best.list[Math.floor(Math.random() * best.list.length)], taken);
+}
+export function pickName(taken = [], parentNames = [], dna = null) {
   const ps = parentNames.filter(Boolean);
   if (ps.length && Math.random() < AFTER_PARENT) return numbered(baseName(ps[Math.floor(Math.random() * ps.length)]), taken);
+  const hint = hintName(dna, taken); if (hint) return hint;
   const free = NAMES.filter(n => !taken.includes(n));
   if (free.length) return free[Math.floor(Math.random() * free.length)];
   return numbered(NAMES[Math.floor(Math.random() * NAMES.length)], taken);

@@ -98,7 +98,7 @@ export function hatchEgg(egg, names = [], parentNames = []) {
   for (const k of GENE_KEYS) { shown[k] = Math.random() < 0.5 ? 0 : 1; dna[k] = egg.genome[k][shown[k]]; }
   const moves = egg.eggMoves?.length ? egg.eggMoves : deriveMoves(dna, sp.types);
   const baby = {
-    id: egg.id, type: "creature", species: egg.species, name: pickName(names, parentNames), sex: Math.random() < 0.5 ? "F" : "M",
+    id: egg.id, type: "creature", species: egg.species, name: pickName(names, parentNames, dna), sex: Math.random() < 0.5 ? "F" : "M",
     col: egg.col, row: egg.row, dna, genome: egg.genome, shown, moves, ...(egg.parts ? { parts: egg.parts } : {}),
     motherId: egg.motherId, fatherId: egg.fatherId, generation: egg.generation, bornAt: null,
     age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",

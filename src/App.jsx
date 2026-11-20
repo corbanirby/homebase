@@ -517,7 +517,7 @@ export default function Homebase(){
     const leadHp=mine?.battleHp!=null&&mine?.maxHp?Math.min(1,Math.max(0.05,mine.battleHp/mine.maxHp)):p[0]?.hp??1;
     settleParty(p.map((c0,i)=>{ const c=applyBattleResults(c0,extra); return {...c,hp:i===0?leadHp:Math.max(0.05,Math.min(partyHp(c),c.hp??1))}; }));
     const s=stateRef.current;
-    const name=pickName(s.creatures.map(c=>c.name));
+    const name=pickName(s.creatures.map(c=>c.name),[],caught.dna);
     const pet={...caught,wild:false,name,mood:null,state:"wander",targetId:null,path:null,dcol:0,drow:0,battleHp:null,maxHp:undefined,
       moves:caught.moves||deriveMoves(caught.dna,speciesOf(caught).types),habitat:1,petAt:0};
     if(hasLearnset(pet)) Object.assign(pet,initLearnset(pet));
