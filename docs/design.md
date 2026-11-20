@@ -627,3 +627,14 @@ How each species moves, rests, forages, hides and reacts to you, built after the
 - **Peck is Air** (only birds learn it).
 - **Packing creatures:** at home, a creature's card has "Take in your bag next trip". It takes its pod and a bag spot (shared with packed eggs), comes off the vine, and is in your bag when you go out: to release it somewhere, bring a spare, and so on.
 - The info bar at the top while out is gone; the bag button shows the bag count.
+
+## Levels and experience (decided and built November 20)
+
+Compared with Pokémon first (see the chat): Homebase's flat 100 XP per level, with wins paying more as foes got stronger, made levelling *speed up* with level (about 2.6 levels per even fight at level 30).
+
+- **Level stays a counter** that only goes up. Wild creatures still show their level in battle: learning which ones are dangerous is part of the fun.
+- **XP curve:** a level costs about (2 + level ÷ 5) wins against an evenly matched foe: 3 at level 5, 4 at 10, 8 at 30, 12 at 50, 16 at 70. One tuning number (`winsPerLevel` in `src/creatures/leveling.js`) speeds it all up or down once we know how much people play.
+- **Growth groups by species** multiply that: fast 0.75× (Glimmerwick, Shoalclaw, Scuffinch), medium 1× (Ramtarug, Flintback, Possumbra), slow 1.3× (Kudzoon, Thrummet, Clattershell), very slow 1.6× (Duskhowl).
+- **XP for a win comes from the foe's real strength**, not its level: its stat total turned into "the level an average adult would need for these stats" (so species, life stage, genes and condition all count). It's then scaled by that strength compared with yours: half against a foe half as strong, up to double against a much stronger one. Your babies learn fast by beating stronger creatures; farming weak ones pays little.
+- **Genes keep their ±25% range.** The XP-rate gene narrows to 0.85–1.15 (was 0.5–1.5). Size counts a quarter on HP (was half). Breeding already passes one copy of each gene from each parent (never an average).
+- Older saves keep their levels and how far each creature was into its level.

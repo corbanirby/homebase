@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { XP_PER_LEVEL } from "../config.js";
+import { addXp, xpForWin } from "../creatures/leveling.js";
 import { lifeStage, speciesOf, creatureSprite, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
 import { levelUpMoves, TYPE_COLORS } from "./moves.js";
@@ -169,12 +169,11 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   function endBattle(result,fp,fe){
     const extra=battleResults(fp);
     if(result==="win"){
-      const totalXp=Math.floor(20+(fe.level||1)*8);
-      const numPart=participantIds.size||1;
+      // XP from how strong the foe really is, compared with the one that finished it
+      const totalXp=xpForWin(fp,fe), numPart=participantIds.size||1;
       const xpEach=Math.max(1,Math.floor(totalXp/numPart));
       const xpMsg=numPart>1?" (split "+numPart+" ways)":"";
-      const xpNeeded=Math.floor(XP_PER_LEVEL*(fp.dna.xpRate??1));
-      const nxp=(fp.xp||0)+xpEach, nl=Math.floor(nxp/xpNeeded)+1;
+      const r=addXp(fp,xpEach), nxp=r.xp, nl=r.level;
       const lu=nl>(fp.level||1);
       const up=levelUpMoves(fp,nl);
       const lvMsg=lu?" Level UP → Lv"+nl+"!":"";

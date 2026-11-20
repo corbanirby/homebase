@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { TICK_MS, XP_PER_LEVEL } from "./config.js";
+import { TICK_MS } from "./config.js";
+import { addXp, migrateLeveling } from "./creatures/leveling.js";
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
@@ -93,7 +94,7 @@ const ensureMoves=c=>c.isEgg?c:ensureParts(hasLearnset(c)&&!c.learnsetV?initLear
 const freshWorld=s=>{ if(s.world?.v===WORLD_V) return s;
   const trip=s.where==="out"&&s.trip?{...newTrip(),bag:s.trip.bag||[]}:s.trip;
   return {...s,world:makePops(),trip}; };
-const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:(s0.creatures||[]).map(c=>ensureMoves(ensureGenome(c)))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:(s0.creatures||[]).map(c=>migrateLeveling(ensureMoves(ensureGenome(c))))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Saves hit by the old catch-up bug can have two creatures sharing an id: the later ones get new ids
 // (the vine, bag and pods keep pointing at the first)
@@ -104,10 +105,8 @@ const fixDuplicateIds=s=>{
 };
 // Experience for creatures that fought but weren't out at the end
 function giveXp(c,xp){
-  const need=Math.floor(XP_PER_LEVEL*(c.dna.xpRate??1));
-  const nxp=(c.xp||0)+xp, nl=Math.floor(nxp/need)+1;
-  const up=levelUpMoves(c,nl);
-  return {...c,xp:nxp,level:Math.max(c.level||1,nl),moves:up.moves,learned:up.learned};
+  const r=addXp(c,xp), up=levelUpMoves(c,r.level);
+  return {...c,xp:r.xp,level:r.level,moves:up.moves,learned:up.learned};
 }
 const BAG_MAX=6;
 const REST_REFILL_MS=60*60*1000; // a spring or stretch of shoals heals again after an hour

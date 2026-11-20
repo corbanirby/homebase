@@ -63,7 +63,7 @@ export function battleStats(c, biome = null) {
   const eld = speciesOf(c).elder || { atk: 0.85, ele: 0.85, spd: 0.85 };
   const b = key => (base[key] ?? 1) * (st === "elder" ? eld[key] ?? 1 : 1);
   return {
-    maxHp: Math.max(6, Math.floor((18 + lv * 8) * b("hp") * g(c, "hpRange") * (0.5 + 0.5 * g(c, "size")) * k)),
+    maxHp: Math.max(6, Math.floor((18 + lv * 8) * b("hp") * g(c, "hpRange") * (0.75 + 0.25 * g(c, "size")) * k)),
     atk: Math.max(1, Math.floor((5 + lv * 3) * b("atk") * g(c, "strength") * k)),
     def: Math.max(1, Math.floor((4 + lv * 2.5) * b("def") * g(c, "size") * k)),
     ele: Math.max(1, Math.floor((5 + lv * 3) * b("ele") * g(c, "elemental") * k)),

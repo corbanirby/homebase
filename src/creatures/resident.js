@@ -2,7 +2,6 @@ import { newId } from "../engine/ids.js";
 import { randomDNA } from "./dna.js";
 import { deriveMoves, levelUpMoves, initLearnset, hasLearnset } from "../battle/moves.js";
 import { ensureParts } from "./parts.js";
-import { XP_PER_LEVEL } from "../config.js";
 import { SPECIES, STAGES, lifeStage, stageEnds } from "./species.jsx";
 
 // ─── Creatures that live in your homebase ─────────────────────────────────────
@@ -99,8 +98,7 @@ export function makeWild(species, col, row, level = 1, youngOnly = false) {
 export const STARTER_LEVEL = 5;
 export function raiseToLevel(c, level) {
   if ((c.level || 1) >= level) return c;
-  const need = Math.floor(XP_PER_LEVEL * (c.dna.xpRate ?? 1));
-  if (hasLearnset(c)) return initLearnset({ ...c, level, xp: Math.max(c.xp || 0, (level - 1) * need) });
+  if (hasLearnset(c)) return initLearnset({ ...c, level, xp: 0, levelV: 2 });
   const up = levelUpMoves(c, level);
-  return { ...c, level, xp: Math.max(c.xp || 0, (level - 1) * need), moves: up.moves };
+  return { ...c, level, xp: 0, levelV: 2, moves: up.moves };
 }

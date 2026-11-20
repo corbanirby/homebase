@@ -5,7 +5,7 @@ export function randomDNA() {
     strength:0.4+Math.random()*0.6, aggression:0.2+Math.random()*0.8,
     metabolism:0.4+Math.random()*1.2,
     reproRate:0.4+Math.random()*1.2,
-    xpRate:0.5+Math.random()*1.0,    // 0.5–1.5: low=levels fast, high=levels slow
+    xpRate:0.85+Math.random()*0.3,   // 0.85–1.15: low=levels fast, high=levels slow
     hpRange:0.5+Math.random()*1.0,   // 0.5–1.5: low=fragile/small hp pool, high=tanky
     elemental:0.6+Math.random()*0.8, // 0.6–1.4: power of type moves
     resistance:0.6+Math.random()*0.8, // 0.6–1.4: holding up against type moves
