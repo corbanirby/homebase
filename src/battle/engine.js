@@ -57,11 +57,12 @@ export function habitatAdvantage(c, biome) {
   return likes >= 0.6 ? 1.1 : 1;
 }
 export function battleStats(c, biome = null) {
-  const lv = c.level || 1, base = speciesOf(c).base || {};
-  const st = lifeStage(c).id, k = (STAGE_POWER[st] || 1) * conditionFactor(c) * habitatAdvantage(c, biome);
-  // Elders: each species sets how its stats change (default: Attack, Elemental and Speed −15%)
-  const eld = speciesOf(c).elder || { atk: 0.85, ele: 0.85, spd: 0.85 };
-  const b = key => (base[key] ?? 1) * (st === "elder" ? eld[key] ?? 1 : 1);
+  const lv = c.level || 1, sp = speciesOf(c), st = lifeStage(c).id;
+  // Each species has its own stats for each life stage (tier and stage strength built in)
+  const staged = sp.stageStats?.[st];
+  const k = (staged ? 1 : STAGE_POWER[st] || 1) * conditionFactor(c) * habitatAdvantage(c, biome);
+  const base = sp.base || {}, eld = sp.elder || { atk: 0.85, ele: 0.85, spd: 0.85 };
+  const b = key => staged ? staged[key] ?? 1 : (base[key] ?? 1) * (st === "elder" ? eld[key] ?? 1 : 1);
   return {
     maxHp: Math.max(6, Math.floor((18 + lv * 8) * b("hp") * g(c, "hpRange") * (0.75 + 0.25 * g(c, "size")) * k)),
     atk: Math.max(1, Math.floor((5 + lv * 3) * b("atk") * g(c, "strength") * k)),

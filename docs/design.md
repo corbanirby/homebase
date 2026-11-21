@@ -641,3 +641,53 @@ Compared with Pokémon first (see the chat): Homebase's flat 100 XP per level, w
 - **Names are unique** among your creatures. About 1 in 5 babies is named after a parent with a number (Pip II, Pip III…); when all 36 names are taken, numbered ones carry on. Older saves with two of a name get the later ones numbered. Renaming by hand is still free.
 - **Hint names:** a creature with a standout gene (top or bottom 5% of its range) has an even chance of a name that hints at it; the most extreme gene wins (about 3 in 10 wild creatures). A Dart is always fast, but not every fast one is a Dart. Lists (high / low): Speed Dart, Flick, Zip, Swift, Zephyr, Skitter, Jett / Dawdle, Plod, Mosey, Tarry, Lolly, Puddle. Size Boulder, Bulk, Moose, Bruno, Hefty, Goliath / Runt, Wee, Button, Pipsqueak, Teeny, Peanut, Smidge. Strength Knuckle, Rocco, Butch, Thump, Bash / Twig, Wisp, Noodle, Feather, Dandy. HP Oak, Hardy, Burl, Tuff, Bjorn / Petal, Dewey, Bubbles, Crumb, Tinsel. Elemental Blaze, Storm, Torrent, Sparky, Flare, Volta / Fizzle, Dudley, Puff, Sputter. Resistance Bastion, Warden, Brick, Tortuga / Patch, Tatters, Nicky. Lifespan Sage, Methuselah, Everett, Grandby / Mayfly, Blink, Comet, Flit. Temper Fury, Scrap, Rowdy, Ruckus, Spike / Mellow, Lulu, Pax, Honey, Dozy. Babies named after a parent skip this; renaming by hand overrides it.
 - **Ordinary names:** 156 (plant, earth and creature-like), none of them hint names.
+
+## Species tiers and stats by life stage (decided and built November 20)
+
+- **Each species has its own six stats for each life stage** (`stageStats` in `species.jsx`), replacing the flat baby 70% / adolescent 85% and the separate elder changes. 1.00 = an average adult stat; genes (±25%) and condition still multiply on top. The old `base` now only sets walking speed.
+- **Tiers** (multiply the whole species): Glimmerwick 0.8; Shoalclaw, Scuffinch 0.9; Ramtarug, Flintback, Possumbra 1.0; Kudzoon, Thrummet, Clattershell 1.1; Duskhowl 1.3 (1.6× from weakest to apex; Pokémon is about 2×, but our genes vary far more than IVs).
+- **Shapes** were stretched 1.5× from the earlier drafts so roles read clearly (Clattershell a wall, Thrummet adults the fastest, Glimmerwick a glass cannon, Duskhowl the apex).
+- **Stage totals:** baby 70%, adolescent 85%, elder 95% of the adult total; Thrummet's nymph 85% (it's a nymph for 70% of its life). Each stage leans toward its look (Kudzoon's runner is quick, its woody crown barely moves; Shoalclaw's elder has the huge claw).
+- **Something like EVs** (what a creature does shaping its stats): not now. Planned as diet (Behavior stage) and training with a mentor (Mentoring stage): visible, capped around +10%.
+
+| Species | Stage | HP | Atk | Def | Elem | Res | Spd | Total |
+|---|---|---|---|---|---|---|---|---|
+| Ramtarug | baby | 0.89 | 0.69 | 0.69 | 0.69 | 0.69 | 0.54 | 4.19 |
+| Ramtarug | adolescent | 0.91 | 0.85 | 0.85 | 0.85 | 0.85 | 0.79 | 5.10 |
+| Ramtarug | adult | 1.08 | 1.00 | 1.00 | 1.00 | 1.00 | 0.92 | 6.00 |
+| Ramtarug | elder | 1.04 | 0.82 | 1.06 | 0.96 | 1.06 | 0.76 | 5.70 |
+| Kudzoon | baby | 1.06 | 0.59 | 0.75 | 0.81 | 0.93 | 0.48 | 4.62 |
+| Kudzoon | adolescent | 1.17 | 0.74 | 0.81 | 1.02 | 1.02 | 0.84 | 5.60 |
+| Kudzoon | adult | 1.50 | 0.87 | 1.23 | 1.20 | 1.20 | 0.60 | 6.60 |
+| Kudzoon | elder | 1.29 | 0.82 | 1.27 | 1.13 | 1.36 | 0.40 | 6.27 |
+| Thrummet | baby | 0.88 | 0.92 | 1.14 | 1.06 | 0.84 | 0.77 | 5.61 |
+| Thrummet | adult | 0.85 | 1.01 | 0.75 | 1.35 | 0.93 | 1.70 | 6.59 |
+| Thrummet | elder | 0.87 | 1.03 | 0.95 | 1.32 | 0.95 | 1.16 | 6.28 |
+| Scuffinch | baby | 0.60 | 0.74 | 0.40 | 0.55 | 0.55 | 0.93 | 3.77 |
+| Scuffinch | adolescent | 0.64 | 0.86 | 0.58 | 0.64 | 0.64 | 1.24 | 4.60 |
+| Scuffinch | adult | 0.76 | 1.08 | 0.69 | 0.76 | 0.76 | 1.36 | 5.41 |
+| Scuffinch | elder | 0.75 | 1.01 | 0.68 | 0.86 | 0.82 | 1.02 | 5.14 |
+| Flintback | baby | 0.52 | 0.68 | 0.58 | 0.83 | 0.62 | 0.97 | 4.20 |
+| Flintback | adolescent | 0.69 | 0.82 | 0.88 | 1.01 | 0.76 | 0.94 | 5.10 |
+| Flintback | adult | 0.80 | 0.94 | 1.02 | 1.28 | 0.87 | 1.09 | 6.00 |
+| Flintback | elder | 0.76 | 0.90 | 1.11 | 1.10 | 0.95 | 0.88 | 5.70 |
+| Shoalclaw | baby | 0.60 | 0.84 | 0.59 | 0.50 | 0.60 | 0.65 | 3.78 |
+| Shoalclaw | adolescent | 0.72 | 1.02 | 0.91 | 0.61 | 0.72 | 0.61 | 4.59 |
+| Shoalclaw | adult | 0.83 | 1.17 | 1.17 | 0.70 | 0.83 | 0.70 | 5.40 |
+| Shoalclaw | elder | 0.77 | 1.36 | 1.09 | 0.65 | 0.77 | 0.49 | 5.13 |
+| Glimmerwick | baby | 0.49 | 0.34 | 0.39 | 0.85 | 0.62 | 0.66 | 3.35 |
+| Glimmerwick | adolescent | 0.42 | 0.37 | 0.42 | 1.02 | 0.67 | 1.17 | 4.07 |
+| Glimmerwick | adult | 0.52 | 0.45 | 0.52 | 1.25 | 0.82 | 1.25 | 4.81 |
+| Glimmerwick | elder | 0.51 | 0.45 | 0.51 | 1.05 | 0.93 | 1.11 | 4.56 |
+| Possumbra | baby | 0.72 | 0.57 | 0.62 | 0.72 | 0.99 | 0.57 | 4.19 |
+| Possumbra | adolescent | 0.91 | 0.72 | 0.79 | 0.91 | 1.04 | 0.72 | 5.09 |
+| Possumbra | adult | 1.08 | 0.85 | 0.92 | 1.08 | 1.22 | 0.85 | 6.00 |
+| Possumbra | elder | 1.10 | 0.79 | 0.86 | 1.00 | 1.26 | 0.67 | 5.68 |
+| Clattershell | baby | 0.81 | 0.75 | 1.02 | 0.51 | 1.18 | 0.35 | 4.62 |
+| Clattershell | adolescent | 0.95 | 0.88 | 1.43 | 0.59 | 1.38 | 0.38 | 5.61 |
+| Clattershell | adult | 1.09 | 1.00 | 1.82 | 0.68 | 1.58 | 0.43 | 6.60 |
+| Clattershell | elder | 1.03 | 0.86 | 1.90 | 0.64 | 1.49 | 0.35 | 6.27 |
+| Duskhowl | baby | 0.98 | 0.93 | 0.85 | 0.79 | 0.79 | 1.12 | 5.46 |
+| Duskhowl | adolescent | 1.15 | 1.30 | 1.00 | 0.93 | 0.93 | 1.32 | 6.63 |
+| Duskhowl | adult | 1.39 | 1.57 | 1.21 | 1.12 | 1.12 | 1.39 | 7.80 |
+| Duskhowl | elder | 1.31 | 1.47 | 1.14 | 1.16 | 1.22 | 1.11 | 7.41 |
