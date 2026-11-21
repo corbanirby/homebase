@@ -691,3 +691,11 @@ Compared with Pokémon first (see the chat): Homebase's flat 100 XP per level, w
 | Duskhowl | adolescent | 1.15 | 1.30 | 1.00 | 0.93 | 0.93 | 1.32 | 6.63 |
 | Duskhowl | adult | 1.39 | 1.57 | 1.21 | 1.12 | 1.12 | 1.39 | 7.80 |
 | Duskhowl | elder | 1.31 | 1.47 | 1.14 | 1.16 | 1.22 | 1.11 | 7.41 |
+
+## Rarity and catch difficulty (decided and built November 20)
+
+- **Rarity by land type** (`found` in `species.jsx`; tiers 1 common, 0.5 uncommon, 0.25 rare, 0.1 very rare). Kudzoon: kudzu common; forest rare; clay, meadow very rare. Thrummet: forest common; pine rare; kudzu very rare. Scuffinch: meadow common; forest uncommon; kudzu, clay rare. Flintback: granite common; clay rare; pine very rare. Shoalclaw: shoal, creek common; river rare. Glimmerwick: meadow common; creek uncommon; forest rare. Possumbra: forest, kudzu, pine uncommon; meadow, clay, creek rare. Clattershell: pine, clay common; forest very rare. Duskhowl: meadow, forest, pine, clay, kudzu very rare. (The older `biomes` likings still set habitat and pod fit.)
+- **Overall rarity** (stronger species are scarcer): Glimmerwick, Scuffinch, Shoalclaw, Possumbra ×1; Kudzoon, Thrummet, Flintback, Clattershell ×0.7; Duskhowl ×0.3, and never in areas below level 15. Measured: Duskhowl is about 1 in 140 wild creatures in level 15+ areas.
+- **Elders are scarcer in the wild:** they count at 40% near home, rising to full in areas of level 40+. About 4% of wild creatures are elders in low areas, 7% in level-45 areas. The young-only zone by the door stays.
+- **Catch difficulty** multiplies the catch chance: easy ×1.25 (Glimmerwick, Scuffinch, Shoalclaw), normal ×1 (Possumbra, Flintback, Kudzoon, Ramtarug), hard ×0.75 (Thrummet, Clattershell), very hard ×0.45 (Duskhowl). Babies ×1.2, elders ×0.8. Status effects on catching and the pod scene stay for stage 11.
+- This finishes the Stats pass.

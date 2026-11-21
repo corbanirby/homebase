@@ -17,10 +17,12 @@ const DENSITY = 0.012;  // creatures per tile of perfect land
 const REGROW = 0.35;    // share of the gap to full numbers that refills per day
 const MAX_RUSTLES = 4, MAX_WILDS = 5;
 
+// How often a species turns up on a land type (its rarity tier there)
+const landTier = (sp, b) => (SPECIES[sp].found || SPECIES[sp].biomes || {})[b] || 0;
 function capacity(area, sp) {
   const s = SPECIES[sp]; let cap = 0;
-  for (const [b, n] of Object.entries(area)) cap += n * (s.biomes[b] || 0);
-  return cap * DENSITY * (s.rare ? 0.3 : 1);
+  for (const [b, n] of Object.entries(area)) cap += n * landTier(sp, b);
+  return cap * DENSITY * (s.rarity ?? 1);
 }
 export function makePops() {
   const w = atlanta(), pops = {}, lv = {};
@@ -80,7 +82,8 @@ function density(world, k) {
 // Which species you'd meet on this tile, weighted by how many live in the area and how well the tile suits each
 function pickSpecies(world, col, row) {
   const w = atlanta(), k = areaKey(col, row), b = w.biome[Math.floor(row)]?.[Math.floor(col)];
-  const weights = ATLANTA_SPECIES.map(sp => (world.pops[k]?.[sp] || 0) * ((SPECIES[sp].biomes[b] || 0) > 0 ? 1 + 2 * SPECIES[sp].biomes[b] : 0.15));
+  const L = areaLevel(world, k);
+  const weights = ATLANTA_SPECIES.map(sp => L < (SPECIES[sp].minAreaLevel || 0) ? 0 : (world.pops[k]?.[sp] || 0) * (landTier(sp, b) > 0 ? 1 + 2 * landTier(sp, b) : 0.15));
   const total = weights.reduce((a, x) => a + x, 0); if (total < 0.3) return null;
   let r = Math.random() * total;
   for (let i = 0; i < weights.length; i++) { r -= weights[i]; if (r <= 0) return ATLANTA_SPECIES[i]; }
@@ -92,7 +95,7 @@ export function wildAt(world, col, row, sp = null) {
   const d = distFromDoor(col, row), L = areaLevel(world, areaKey(col, row));
   // Young ones come in lower than the area's level, old ones a little higher
   const lvAt = c => Math.max(1, Math.round(L * ({ baby: 0.6, adolescent: 0.8, adult: 1, elder: 1.1 }[lifeStage(c).id]) * (0.9 + Math.random() * 0.2)));
-  return makeWild(sp, col, row, lvAt, d < 12);
+  return makeWild(sp, col, row, lvAt, d < 12, { areaLevel: L });
 }
 export function distFromDoor(col, row) { const { door } = atlanta(); return Math.hypot(col - (door.c + 0.5), row - (door.r + 0.5)); }
 export function takeFromPop(world, col, row, sp) {

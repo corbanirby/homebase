@@ -125,13 +125,17 @@ export function nextStageIn(c) {
 
 // A wild creature in the shared world: genes leaning the way its species does,
 // a level that rises the farther you go from your door, and any age.
-export function makeWild(species, col, row, level = 1, youngOnly = false) {
+// Elders are scarcer in the wild: they count at 40% near home, rising to full in areas of level 40+
+export const elderShare = areaLevel => 0.4 + 0.6 * Math.min(1, (areaLevel || 0) / 40);
+export function makeWild(species, col, row, level = 1, youngOnly = false, { areaLevel = 0 } = {}) {
   const sp = SPECIES[species];
   const dna = randomDNA();
   if (sp.temper) dna.aggression = sp.temper[0] + Math.random() * (sp.temper[1] - sp.temper[0]);
   const c = makeResident({ col, row, species, dna, sex: Math.random() < 0.5 ? "F" : "M", name: null });
   if (sp.temper) c.genome.aggression[1] = sp.temper[0] + Math.random() * (sp.temper[1] - sp.temper[0]);
-  c.age = c.maxAge * (youngOnly ? 0.02 + Math.random() * 0.24 : 0.02 + Math.random() * 0.9);
+  const roll = () => c.maxAge * (youngOnly ? 0.02 + Math.random() * 0.24 : 0.02 + Math.random() * 0.9);
+  c.age = roll();
+  for (let i = 0; i < 20 && lifeStage(c).id === "elder" && Math.random() > elderShare(areaLevel); i++) c.age = roll();
   c.stageId = lifeStage(c).id;
   c.level = typeof level === "function" ? level(c) : level; c.wild = true;
   c.fullness = 0.7 + Math.random() * 0.3;
