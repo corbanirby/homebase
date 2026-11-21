@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { addXp, xpForWin } from "../creatures/leveling.js";
+import { BattleBackdrop } from "./backdrops.jsx";
 import { lifeStage, speciesOf, creatureSprite, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { dnaColor } from "../creatures/dna.js";
 import { levelUpMoves, TYPE_COLORS } from "./moves.js";
@@ -333,7 +334,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   return(
     <div style={{position:"fixed",inset:0,background:bg,display:"flex",flexDirection:"column",zIndex:200,fontFamily:"Georgia,serif",overflow:"hidden"}}>
       {/* Battle field */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around",padding:"8px 16px"}}>
+      <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around",padding:"8px 16px",position:"relative",isolation:"isolate"}}>
+        <BattleBackdrop biome={biome}/>
         <div style={{display:"flex",justifyContent:"flex-end",alignItems:"flex-end",gap:12}}>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <StatusBadges b={enemy}/>
@@ -353,7 +355,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       </div>
 
       {/* Log */}
-      <div ref={logRef} style={{height:60,background:"rgba(0,0,0,0.5)",borderTop:"1px solid #1e293b",padding:"6px 14px",overflowY:"auto",fontSize:12,color:"#cbd5e1",lineHeight:1.5}}>
+      <div ref={logRef} style={{height:84,background:"rgba(0,0,0,0.5)",borderTop:"1px solid #1e293b",padding:"6px 14px",overflowY:"auto",fontSize:15,color:"#cbd5e1",lineHeight:1.5}}>
         {log.slice(-4).map((l,i)=><div key={i} style={{opacity:i===log.slice(-4).length-1?1:0.5}}>{l}</div>)}
       </div>
 
