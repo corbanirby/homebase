@@ -279,8 +279,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
 
   // You open an empty pod in front of it; how well the pod suits it changes the chance.
   // For now a refusal sometimes means it attacks the pod and breaks it (stage 11 brings the full scene).
-  // Some species are harder to catch (Duskhowl), babies are easier and elders harder
-  const catchK=()=>(speciesOf(wildCreature).catchK??1)*({baby:1.2,elder:0.8}[lifeStage(wildCreature).id]??1);
+  // Some species are harder to catch (Duskhowl), babies are easier and elders harder, a fatigued one easier (×1.25)
+  const catchK=()=>(speciesOf(wildCreature).catchK??1)*({baby:1.2,elder:0.8}[lifeStage(wildCreature).id]??1)*(enemy.fatigued?1.25:1);
   const baseChance=()=>Math.min(0.95,Math.max(0.05,0.05+(1-enemy.battleHp/enemy.maxHp)*0.947)*catchK());
   const podChance=pod=>Math.min(0.95,Math.max(0.03,baseChance()*pod.fit));
   function tryCapture(pod){
