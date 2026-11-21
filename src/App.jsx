@@ -8,7 +8,7 @@ import { makeBattler, executeBattleMove, endOfRound, aiPickMove, leechDrain, typ
 import { isPassable } from "./world/tiles.js";
 import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./world/land.js";
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
-import { dnaColor } from "./creatures/dna.js";
+import { typeBg, typeEdge } from "./creatures/typeTint.js";
 import { makePlayer } from "./creatures/factory.js";
 import { makeResident, pickName, uniqueNames, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
 import { PLANT_SPECIES, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
@@ -1000,7 +1000,7 @@ export default function Homebase(){
                 return(
                   <div key={i} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3,minWidth:0}}>
                     <button disabled={!c} onClick={()=>c&&(setCardId(c.id),setRenaming(null))} aria-label={c?c.name+(i===0?", your lead":", on your vine"):"Empty vine slot"}
-                      style={{aspectRatio:"1",width:"100%",padding:0,borderRadius:"50%",background:c?dnaColor(c.dna,12):"#121612",border:"2px solid "+(c?(i===0?"#fde68a":"rgba(134,239,172,0.55)"):"#1f2a1a"),display:"flex",alignItems:"center",justifyContent:"center",cursor:c?"pointer":"default",touchAction:"manipulation"}}>
+                      style={{aspectRatio:"1",width:"100%",padding:0,borderRadius:"50%",background:c?typeBg(c,0.3):"#121612",border:"2px solid "+(c?(i===0?"#fde68a":"rgba(134,239,172,0.55)"):"#1f2a1a"),display:"flex",alignItems:"center",justifyContent:"center",cursor:c?"pointer":"default",touchAction:"manipulation"}}>
                       {c&&<CreatureIcon c={c} size={34}/>}
                     </button>
                     <span style={{fontSize:9,color:i===0?"#fde68a":"#6b7a5e",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{c?(i===0?"★ Lead":c.name):""}</span>
@@ -1188,9 +1188,9 @@ export default function Homebase(){
               onTouchStart={e=>{ const t=e.touches[0]; swipeRef.current={x:t.clientX,y:t.clientY}; }}
               onTouchEnd={e=>{ const s0=swipeRef.current; swipeRef.current=null; if(!s0||renaming!==null) return; const t=e.changedTouches[0], dx=t.clientX-s0.x, dy=t.clientY-s0.y;
                 if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5) stepCard(dx<0?1:-1); }}>
-              <div style={{margin:"0 12px",flex:"1 0 auto",background:"#111511",border:`1px solid ${dnaColor(c.dna,28)}`,borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:12}}>
+              <div style={{margin:"0 12px",flex:"1 0 auto",background:"#111511",border:`1px solid ${typeEdge(c,0.5)}`,borderRadius:14,padding:14,display:"flex",flexDirection:"column",gap:12}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
-                  <div style={{background:dnaColor(c.dna,10),borderRadius:12,padding:4}}><CreatureIcon c={c} size={64}/></div>
+                  <div style={{background:typeBg(c,0.25),borderRadius:12,padding:4}}><CreatureIcon c={c} size={64}/></div>
                   <div style={{flex:1,minWidth:0}}>
                     {renaming!==null?(
                       <form onSubmit={e=>{e.preventDefault();renameCreature(c.id,renaming);setRenaming(null);}} style={{display:"flex",gap:6}}>

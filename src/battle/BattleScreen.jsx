@@ -2,7 +2,7 @@ import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { addXp, xpForWin } from "../creatures/leveling.js";
 import { BattleBackdrop } from "./backdrops.jsx";
 import { lifeStage, speciesOf, creatureSprite, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
-import { dnaColor } from "../creatures/dna.js";
+import { typeBg, typeEdge } from "../creatures/typeTint.js";
 import { levelUpMoves, TYPE_COLORS } from "./moves.js";
 import { moveEffectText, FIELDS } from "./movelist.js";
 import { makeBattler, executeBattleMove, endOfRound, aiPickMove, goesFirst, benchState, usableMoves, isPhysical, leechDrain, isTangled } from "./engine.js";
@@ -427,7 +427,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                       setLog(l=>[...l,`Go, ${nb.label}!`]);
                     }}
                     onContextMenu={e=>e.preventDefault()}
-                    style={{...btnStyle,background:dnaColor(c.dna,15),border:`1.5px solid ${dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:"#e2e8f0",fontSize:11}}>
+                    style={{...btnStyle,background:typeBg(c,0.3,"90deg"),border:`1.5px solid ${typeEdge(c,0.6)}`,borderRadius:8,padding:"6px 10px",color:"#e2e8f0",fontSize:11}}>
                     <div style={{display:"flex",alignItems:"center",gap:5}}>
                       <CreatureIcon c={c} size={22}/>
                       <span>{c.name} · Lv{c.level||1}</span>
@@ -454,7 +454,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                 <button key={i} disabled={out}
                   onClick={()=>handleSwap(i)}
                   onContextMenu={e=>e.preventDefault()}
-                  style={{...btnStyle,background:out?"rgba(255,255,255,0.05)":dnaColor(c.dna,15),border:`1.5px solid ${out?"#333":dnaColor(c.dna,35)}`,borderRadius:8,padding:"6px 10px",color:out?"#475569":"#e2e8f0",fontSize:11,opacity:out?0.5:1,cursor:out?"default":"pointer"}}>
+                  style={{...btnStyle,background:out?"rgba(255,255,255,0.05)":typeBg(c,0.3,"90deg"),border:`1.5px solid ${out?"#333":typeEdge(c,0.6)}`,borderRadius:8,padding:"6px 10px",color:out?"#475569":"#e2e8f0",fontSize:11,opacity:out?0.5:1,cursor:out?"default":"pointer"}}>
                   <div style={{display:"flex",alignItems:"center",gap:5}}>
                     <CreatureIcon c={c} size={22}/>
                     <span>{c.name} · Lv{c.level||1}</span>
