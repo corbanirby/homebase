@@ -48,9 +48,11 @@ export function StatusBadges({b}){
   const items=[...by.values()].map(e=>{ const d=STATUS[e.id]||{}; return {key:e.id,icon:d.icon||"?",color:d.color||"#888",text:(d.name||e.id)+(e.n>1?" "+e.n:"")+(e.id==="knocked"?"":` · ${e.turns}`)}; });
   if(b.status&&BADGE_LEGACY[b.status]){ const[icon,color,text]=BADGE_LEGACY[b.status]; items.push({key:"legacy",icon,color,text}); }
   if(b.underground) items.push({key:"ug",icon:"🕳️",color:"#a8a29e",text:"Underground"});
+  // Out of stamina: only light moves, 20% slower and weaker, until it rests
+  if(b.fatigued) items.push({key:"fat",icon:"😩",color:"#fb923c",text:"Fatigued"});
   if(!items.length) return null;
   return <div style={{display:"flex",flexWrap:"wrap",gap:3,justifyContent:"flex-start",maxWidth:200}}>
-    {items.map(i=><span key={i.key} style={{background:i.color+"33",border:`1px solid ${i.color}`,borderRadius:4,padding:"1px 5px",fontSize:10,color:i.color,whiteSpace:"nowrap"}}>{i.icon} {i.text}</span>)}
+    {items.map(i=><span key={i.key} style={{background:`linear-gradient(${i.color}30,${i.color}30),#111827`,border:`1px solid ${i.color}`,borderRadius:4,padding:"2px 6px",fontSize:11,color:i.color,whiteSpace:"nowrap",boxShadow:"0 1px 3px rgba(0,0,0,0.5)"}}>{i.icon} {i.text}</span>)}
   </div>;
 }
 
