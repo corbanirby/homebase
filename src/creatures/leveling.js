@@ -26,10 +26,10 @@ export function strengthOf(b) {
   const total = (b.maxHp || 0) + (b.atk || 0) + (b.def || 0) + (b.ele || 0) + (b.res || 0) + (b.spd || 0);
   return Math.max(1, (total - 40) / 21.5);
 }
-// XP for beating a foe: from its strength, worth half against one half as strong as yours, up to double against a much stronger one
-export function xpForWin(mine, foe) {
-  const sf = strengthOf(foe), sm = strengthOf(mine);
-  return Math.max(1, Math.round(winXp(sf) * Math.max(0.5, Math.min(2, sf / sm))));
+// XP for beating a foe: from its real strength only (split evenly among those that fought).
+// The level curve does the rest: weak foes pay little to a strong creature, strong foes a lot to a young one.
+export function xpForWin(foe) {
+  return Math.max(1, Math.round(winXp(strengthOf(foe))));
 }
 // Saves from before November 20: xp was a running total at 100 × the old XP-rate gene (0.5–1.5) per level.
 // Keep the level and how far it was into it; squeeze the XP-rate gene into 0.85–1.15.

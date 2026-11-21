@@ -169,8 +169,8 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   function endBattle(result,fp,fe){
     const extra=battleResults(fp);
     if(result==="win"){
-      // XP from how strong the foe really is, compared with the one that finished it
-      const totalXp=xpForWin(fp,fe), numPart=participantIds.size||1;
+      // XP from how strong the foe really is, split evenly among those that fought
+      const totalXp=xpForWin(fe), numPart=participantIds.size||1;
       const xpEach=Math.max(1,Math.floor(totalXp/numPart));
       const xpMsg=numPart>1?" (split "+numPart+" ways)":"";
       const r=addXp(fp,xpEach), nxp=r.xp, nl=r.level;
