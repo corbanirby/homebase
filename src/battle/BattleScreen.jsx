@@ -5,7 +5,7 @@ import { dnaColor } from "../creatures/dna.js";
 import { levelUpMoves, TYPE_COLORS } from "./moves.js";
 import { moveEffectText, FIELDS } from "./movelist.js";
 import { makeBattler, executeBattleMove, endOfRound, aiPickMove, goesFirst, benchState, usableMoves, isPhysical, leechDrain, isTangled } from "./engine.js";
-import { STATUS, toWorld } from "./statuses.js";
+import { STATUS, toWorld, toBattle } from "./statuses.js";
 
 // ─── Battle components ────────────────────────────────────────────────────────
 export function BattleSprite({creature,size=90,flipped=false,shake=false}){
@@ -439,7 +439,12 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
           <div>
             <div style={{color:"#60a5fa",fontSize:11,marginBottom:6}}>Choose a creature to send in (costs a turn):</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
-              {(battleInventory||[]).map((c,i)=>{ const out=i===0||c.fainted||(c.hp||0)<=0.05; return(
+              {(battleInventory||[]).map((c,i)=>{
+                // Creatures already on the bench this battle show their health now (poison and burns keep working there)
+                const live=i===0?player:benchRef.current.has(c.id)?benchFor(c).b:null;
+                const hpf=live?live.battleHp/live.maxHp:(c.hp??1), fx=live?live.fx:toBattle(c.statuses);
+                const icons=[...new Set((fx||[]).map(f=>f.id))].map(id=>STATUS[id]?.icon).filter(Boolean).join("");
+                const out=i===0||c.fainted||hpf<=(live?0:0.05); return(
                 <button key={i} disabled={out}
                   onClick={()=>handleSwap(i)}
                   onContextMenu={e=>e.preventDefault()}
@@ -450,8 +455,11 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
                     {i===0&&<span style={{fontSize:9,color:"#475569"}}>(out now)</span>}
                     {i!==0&&out&&<span style={{fontSize:9,color:"#f87171"}}>(fainted)</span>}
                   </div>
-                  <div style={{width:50,height:3,background:"#222",borderRadius:2,marginTop:3}}>
-                    <div style={{width:`${(c.hp||0)*100}%`,height:"100%",background:c.hp>.5?"#4ade80":"#f87171",borderRadius:2}}/>
+                  <div style={{display:"flex",alignItems:"center",gap:4,marginTop:3}}>
+                    <div style={{flex:1,height:4,background:"#222",borderRadius:2}}>
+                      <div style={{width:`${Math.max(0,Math.min(1,hpf))*100}%`,height:"100%",background:hpf>.5?"#4ade80":hpf>.2?"#facc15":"#f87171",borderRadius:2}}/>
+                    </div>
+                    {icons&&<span style={{fontSize:9,lineHeight:1}}>{icons}</span>}
                   </div>
                 </button>
               );})}
