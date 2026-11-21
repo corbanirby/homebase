@@ -40,10 +40,12 @@ export const SPECIES = {
       {lv:22,stage:"adolescent",move:"smother"}, {lv:30,stage:"adult",move:"grapebloom"}, {lv:34,stage:"adult",move:"blankethills"},
       {lv:40,stage:"adult",move:"strangle"}, {lv:44,stage:"adult",move:"topple"}, {lv:48,stage:"adult",move:"deepcrown"},
       {lv:54,stage:"elder",move:"woodycrown"} ] },
-  thrummet: { no:3, name:"Thrummet", growth:"slow", stageStats:{ baby:{hp:0.88,atk:0.92,def:1.14,ele:1.06,res:0.84,spd:0.77}, adolescent:{hp:0.88,atk:0.92,def:1.14,ele:1.06,res:0.84,spd:0.77}, adult:{hp:0.85,atk:1.01,def:0.75,ele:1.35,res:0.93,spd:1.7}, elder:{hp:0.87,atk:1.03,def:0.95,ele:1.32,res:0.95,spd:1.16} }, base:{hp:0.85,atk:0.95,def:0.9,ele:1.05,res:0.9,spd:1.2}, fastHours:12, art:"thrummet", palette:{ main:{ hue:80, width:25, minSat:0.3, range:25 }, accent:{ hue:2, width:15, minSat:0.5, range:20 } }, types:["Bug","Air"], lifespanDays:35, habitat:{ wet:[0.2,0.5,0.85] }, eats:HOMEFOOD,
+  thrummet: { no:3, name:"Thrummet", growth:"slow", stageStats:{ baby:{hp:0.88,atk:0.92,def:1.14,ele:1.06,res:0.84,spd:0.77}, adolescent:{hp:0.88,atk:0.92,def:1.14,ele:1.06,res:0.84,spd:0.77}, adult:{hp:0.85,atk:1.01,def:0.75,ele:1.35,res:0.93,spd:1.7}, elder:{hp:0.87,atk:1.03,def:0.95,ele:1.32,res:0.95,spd:1.16} }, base:{hp:0.85,atk:0.95,def:0.9,ele:1.05,res:0.9,spd:1.2}, fastHours:12, path:"sprites/thrummet", types:["Bug","Air"], lifespanDays:35, habitat:{ wet:[0.2,0.5,0.85] }, eats:HOMEFOOD,
     diet:"Tree sap", based:"Cicada", biomes:{ forest:1, pine:0.4, kudzu:0.2 }, sizeMul:0.6, temper:[0.2,0.6],
     // No adolescence: a long underground nymph (Bug/Earth), then a short loud winged adult (Bug/Air)
     stageEnds:[0.7,0.7,0.95], stageTypes:{ baby:["Bug","Earth"] }, elder:{ spd:0.8, ele:1.1 }, stamina:0.9,
+    // Colour ramps in its sprite: olive body (main); red eyes, orange wing veins and the nymph's tan shell together (accent); the blue wing shimmer stays put
+    palette:{ main:{ hue:50, width:12, minSat:0.3, minVal:0.2, range:25 }, accent:{ hue:10, width:20, minSat:0.28, minVal:0.3, range:20 } },
     learnset:[ {lv:1,move:"pierce"}, {lv:6,move:"saptap"}, {lv:11,move:"digin"}, {lv:16,move:"emergence"},
       {lv:22,stage:"adult",move:"molt"}, {lv:26,stage:"adult",move:"drone"}, {lv:32,stage:"adult",move:"wingwhir"},
       {lv:38,stage:"adult",move:"chorusswell"}, {lv:44,stage:"adult",move:"seventeenyears"} ] },

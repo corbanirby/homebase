@@ -31,4 +31,4 @@ Homebase is Corban Irby's creature-ecosystem game: you raise creatures in a priv
 - `src/world/` — `land.js` (homebase land), `atlanta.js` (shared-world map), `tiles.js`, `render.js`
 - `src/plants/plants.js` — plants and pod plants
 - `src/engine/` — `save.js`, `time.js` (catching up while away)
-- `public/sprites/<species>/<stage>/<direction>.png` — creature sprites (Ramtarug and Scuffinch so far)
+- `public/sprites/<species>/<stage>/<direction>.png` — creature sprites (Ramtarug, Scuffinch and Thrummet so far)

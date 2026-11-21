@@ -1,6 +1,6 @@
 # Homebase sprites
 
-How creature sprites are made and added. Ramtarug and Scuffinch have real sprites so far; the other eight use code-drawn placeholders (`src/creatures/placeholderArt.js`) until theirs are made.
+How creature sprites are made and added. Ramtarug, Scuffinch and Thrummet have real sprites so far; the other seven use code-drawn placeholders (`src/creatures/placeholderArt.js`) until theirs are made.
 
 ## The format (match Ramtarug)
 
@@ -33,7 +33,7 @@ Then run the game locally (`npm install`, `npm run dev`, open the printed addres
 Each species' full concept and moves are in `docs/design.md`. The sprites should show what its moves describe.
 
 - **Kudzoon** (Plant; kudzu, "the vine that ate the South"). Stages: **seedling** (baby: small sprout, three-part leaves, two eyes) → **runner** (adolescent: long sprawling vine, reaching tendrils) → **flowering mound** (adult: big leafy heap with spikes of purple, grape-scented flowers) → **woody crown** (elder: thick twisted brown root-crown, fewer, tougher leaves).
-- **Thrummet** (Bug/Air; cicada). **No adolescent stage** — only `baby`, `adult`, `elder` are used (still make the `adolescent` folder as a copy of `baby` so nothing is missing). Baby is the **underground nymph** (brown, digging forelegs, Bug/Earth); adult is the **winged cicada** (dark body, red eyes, clear veined wings); elder greyer, ragged wings.
+- **Thrummet** (Bug/Air; Georgia dog-day cicada). **Done November 20.** **No adolescent stage** — only `baby`, `adult`, `elder` are used; `adolescent/` is a copy of `baby` so nothing is missing. Three standout features: big bulging red eyes set wide; clear wings with orange-gold veins folded like a roof; and the Air touch, a faint pale-blue shimmer along the wing edges. Colours: dark olive body (about 50°) with black markings; accent red eyes and orange veins (about 350°–30°); the blue shimmer sits outside both bands. Baby is the **underground nymph** (Bug/Earth): hunched, tan-brown and armoured, big digging forelegs, smaller dull-red eyes, soil specks, small wing pads, no wings. Adult is the full winged cicada. Elder keeps the olive and red but faded (not grey), dark grey-olive markings, ragged torn wings, cloudy eyes, weaker shimmer. No flying set yet.
 - **Scuffinch** (Air; brown thrasher, Georgia's state bird). Rust-brown songbird, long tail, cream breast streaked dark brown, bright yellow eye, long slightly curved dark bill. Baby: fluffy nestling, stubby tail. Adolescent: sleeker, streaks coming in. Adult: full colour, long tail. Elder: greyer, duller eye, ragged tail feathers.
 - **Flintback** (Earth/Fire; eastern fence lizard on hot granite). Grey-brown spiny scales like flint, sparks/ember glow along the back, blue belly patches on adults; it bobs push-ups and drops its tail. Baby small and plain; elder darker, coal-like.
 - **Shoalclaw** (Water/Earth; Chattahoochee crayfish). Red-brown armoured crayfish, one oversized crushing claw, long antennae, fan tail. Baby translucent and tiny; elder huge scarred claw.
