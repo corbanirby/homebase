@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { TICK_MS } from "./config.js";
-import { addXp, migrateLeveling } from "./creatures/leveling.js";
+import { addXp, migrateLeveling, xpToNext } from "./creatures/leveling.js";
 import { newId, setNextId } from "./engine/ids.js";
 import { readSave, writeSave, clearSave, timeAgo } from "./engine/save.js";
 import { catchUp, formatDuration } from "./engine/time.js";
@@ -1207,6 +1207,11 @@ export default function Homebase(){
                     )}
                     <div style={{color:"#8a9a7a",fontSize:12,marginTop:2}}>{speciesOf(c).name} · {st.label} · {fmtAge(c.age)} old</div>
                     <div style={{color:"#5a6a4a",fontSize:11,marginTop:2}}>{typesOf(c).join(" / ")} · Lv{c.level||1} · {nx?`${nx.stage.label} in ${formatDuration(nx.ms)}`:inLastDays(c)?"In the last days of its life":"An elder"}</div>
+                    {!c.isEgg&&(()=>{ const need=xpToNext(c), have=Math.min(need,c.xp||0); return(
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginTop:5}}>
+                        <div style={{flex:1,maxWidth:160,height:5,background:"#1a2418",borderRadius:3,overflow:"hidden"}}><div style={{width:`${have/need*100}%`,height:"100%",background:"#60a5fa"}}/></div>
+                        <span style={{color:"#6a8aa8",fontSize:10}}>{have}/{need} XP · Lv{(c.level||1)+1}</span>
+                      </div>); })()}
                   </div>
                   <button onClick={()=>{setCardId(null);setRenaming(null);}} aria-label="Close" style={{...closeBtn,alignSelf:"flex-start"}}>✕</button>
                 </div>

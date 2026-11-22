@@ -1,11 +1,11 @@
 import { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { addXp, xpForWin } from "../creatures/leveling.js";
+import { addXp, xpForWin, xpToNext } from "../creatures/leveling.js";
 import { BattleBackdrop } from "./backdrops.jsx";
 import { lifeStage, speciesOf, creatureSprite, useSpritesLoaded, CreatureIcon } from "../creatures/species.jsx";
 import { typeBg, typeEdge } from "../creatures/typeTint.js";
 import { levelUpMoves, TYPE_COLORS } from "./moves.js";
 import { moveEffectText, FIELDS } from "./movelist.js";
-import { makeBattler, executeBattleMove, endOfRound, aiPickMove, goesFirst, benchState, usableMoves, isPhysical, leechDrain, isTangled } from "./engine.js";
+import { makeBattler, battleStats, executeBattleMove, endOfRound, aiPickMove, goesFirst, benchState, usableMoves, isPhysical, leechDrain, isTangled } from "./engine.js";
 import { STATUS, toWorld, toBattle } from "./statuses.js";
 
 // ─── Battle components ────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ export function BattleSprite({creature,size=90,flipped=false,shake=false}){
 
 // ♀ pink, ♂ blue, next to the name
 const SexMark=({sex})=>sex==="F"?<span style={{color:"#f9a8d4",marginLeft:4}} aria-label="female">♀</span>:sex==="M"?<span style={{color:"#93c5fd",marginLeft:4}} aria-label="male">♂</span>:null;
-export function HpBar({current,max,label,level,sex=null}){
+export function HpBar({current,max,label,level,sex=null,xp=null}){
   const pct=Math.max(0,Math.min(1,current/max)), over=current>max;
   const col=over?"#a3e635":pct>0.5?"#4ade80":pct>0.25?"#facc15":"#f87171";
   return(
@@ -36,6 +36,13 @@ export function HpBar({current,max,label,level,sex=null}){
         <div style={{width:`${pct*100}%`,height:"100%",background:col,borderRadius:3,transition:"width 0.3s"}}/>
       </div>
       <div style={{color:over?"#a3e635":"#64748b",fontSize:10,textAlign:"right"}}>{current}/{max}{over?" 🌿":""}</div>
+      {xp&&<div title="Experience toward the next level" style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
+        <span style={{color:"#60a5fa",fontSize:8,letterSpacing:"0.05em"}}>XP</span>
+        <div style={{flex:1,background:"#0f0f1e",borderRadius:2,height:4,overflow:"hidden"}}>
+          <div style={{width:`${Math.max(0,Math.min(1,xp.xp/xp.need))*100}%`,height:"100%",background:"#60a5fa",transition:"width 0.6s"}}/>
+        </div>
+        <span style={{color:"#64748b",fontSize:8}}>{xp.need-xp.xp} to Lv{level+1}</span>
+      </div>}
     </div>
   );
 }
@@ -58,6 +65,7 @@ export function StatusBadges({b}){
 
 export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battleInventory,onSwapToFront,onSaveBattleHp,intro=null,canCatch=true,pods=[],onPodBroken=null,biome=null}){
   const[showPods,setShowPods]=useState(false);
+  const[levelUp,setLevelUp]=useState(null);
   const[phase,setPhase]=useState("player_turn");
   const[player,setPlayer]=useState(()=>makeBattler(playerCreature,biome));
   const[enemy,setEnemy]=useState(()=>makeBattler({...wildCreature,wild:true},biome));
@@ -106,10 +114,15 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
 
   // Message queue — items are { msg, applyState? }
   // applyState() fires when that message is displayed, syncing HP bar with log
+  // Each message stays long enough to read (longer ones longer) before the next one shows
+  const[kick,setKick]=useState(0); const skipRef=useRef(false), shownRef=useRef({msg:"",at:0});
+  const readTime=m=>Math.min(1800,700+String(m||"").length*16);
   useEffect(()=>{
     if(!pending||!pending.length)return;
+    const last=shownRef.current, wait=skipRef.current?0:Math.max(250,readTime(last.msg)-(Date.now()-last.at)); skipRef.current=false;
     const timer=setTimeout(()=>{
       const[item,...rest]=pending;
+      shownRef.current={msg:String(item.msg||''),at:Date.now()};
       if(item.applyState) item.applyState();
       setLog(l=>[...l,String(item.msg||'')]);
       if(!rest.length){
@@ -120,9 +133,11 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
         }
         settleTurn();
       } else setPending(rest);
-    },700);
+    },wait);
     return()=>clearTimeout(timer);
-  },[pending]);
+  },[pending,kick]);
+  // Tapping the log shows the next message straight away
+  const tapLog=()=>{ if(pending&&pending.length){ skipRef.current=true; setKick(k=>k+1); } };
 
   // After a turn's messages: someone fainted, or it's your turn again
   function settleTurn(){
@@ -182,7 +197,15 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       const lvMsg=lu?" Level UP → Lv"+nl+"!":"";
       setLog(l=>{const m=[...l,"Won! +"+xpEach+" XP"+xpMsg+"."+lvMsg];for(const n of up.names) m.push(`${fp.label} learned ${n}!`);return m;});
       setPhase("end");
-      setTimeout(()=>onEnd("win",{...fp,xp:nxp,level:Math.max(fp.level||1,nl),moves:up.moves,learned:up.learned,hp:Math.min(1,fp.battleHp/fp.maxHp)},participantIds,xpEach,extra),lu?1800:1200);
+      const finish=()=>onEnd("win",{...fp,xp:nxp,level:Math.max(fp.level||1,nl),moves:up.moves,learned:up.learned,hp:Math.min(1,fp.battleHp/fp.maxHp)},participantIds,xpEach,extra);
+      // The XP bar fills (if it levelled, first to the top)
+      setPlayer(p=>({...p,xp:lu?xpToNext(p):nxp}));
+      if(lu){
+        // Level up: show what changed, and wait for Continue
+        const keys=[["maxHp","HP"],["atk","Attack"],["def","Defense"],["ele","Elemental"],["res","Resistance"],["spd","Speed"]];
+        const was=battleStats({...fp,level:fp.level||1},biome), now=battleStats({...fp,level:nl},biome);
+        setTimeout(()=>{ setPlayer(p=>({...p,level:nl,xp:nxp})); setLevelUp({from:fp.level||1,to:nl,names:up.names,rows:keys.map(([k,n])=>({n,a:was[k],b:now[k]})),finish}); },700);
+      } else setTimeout(finish,1200);
     } else {
       setLog(l=>[...l,"Your creature fainted..."]);
       setPhase("end");
@@ -208,6 +231,19 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       if(mine){ setPlayer(a); playerRef.current=a; setEnemy(d); enemyRef.current=d; if(d.battleHp<before.battleHp){setShakeE(true);setTimeout(()=>setShakeE(false),200);} }
       else { setEnemy(a); enemyRef.current=a; setPlayer(d); playerRef.current=d; if(d.battleHp<before.battleHp){setShakeP(true);setTimeout(()=>setShakeP(false),200);} }
     };
+    const steps=r.hpSteps||[];
+    if(steps.length>1&&rest.length){
+      // A multi-hit move: the health bar drops with each "Hit for" message; everything else lands with the last hit
+      const base=items.length-1; for(const m of rest) items.push({msg:m});
+      steps.forEach((st,i)=>{
+        const at=base+st.at; if(!items[at]) return;
+        items[at]={...items[at],applyState:i===steps.length-1?apply:()=>{
+          if(mine){ setEnemy(e=>({...e,battleHp:st.hp})); setShakeE(true); setTimeout(()=>setShakeE(false),200); }
+          else { setPlayer(p=>({...p,battleHp:st.hp})); setShakeP(true); setTimeout(()=>setShakeP(false),200); }
+        }};
+      });
+      return;
+    }
     if(rest.length){ items.push({msg:rest[0],applyState:apply}); for(let i=1;i<rest.length;i++) items.push({msg:rest[i]}); }
     else items[items.length-1]={...items[items.length-1],applyState:apply};
   }
@@ -335,6 +371,23 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
 
   return(
     <div style={{position:"fixed",inset:0,background:bg,display:"flex",flexDirection:"column",zIndex:200,fontFamily:"Georgia,serif",overflow:"hidden"}}>
+      {/* Level up: what changed, until you tap Continue */}
+      {levelUp&&<div style={{position:"absolute",inset:0,zIndex:30,background:"rgba(5,8,20,0.72)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+        <div style={{background:"#141a2e",border:"1.5px solid #60a5fa",borderRadius:12,padding:"16px 18px",width:"100%",maxWidth:320,boxShadow:"0 8px 30px rgba(0,0,0,0.6)"}}>
+          <div style={{color:"#93c5fd",fontSize:12,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:2}}>Level up</div>
+          <div style={{color:"#e2e8f0",fontSize:20,fontWeight:"bold",marginBottom:10}}>{activeCreature.name||"Yours"} · Lv{levelUp.from} → Lv{levelUp.to}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",columnGap:10,rowGap:4,fontSize:14}}>
+            {levelUp.rows.map(r=>[
+              <span key={r.n+"n"} style={{color:"#94a3b8"}}>{r.n}</span>,
+              <span key={r.n+"a"} style={{color:"#64748b",textAlign:"right"}}>{r.a}</span>,
+              <span key={r.n+"r"} style={{color:"#475569"}}>→</span>,
+              <span key={r.n+"b"} style={{color:"#e2e8f0",textAlign:"right"}}>{r.b} <span style={{color:"#4ade80",fontSize:12}}>+{r.b-r.a}</span></span>
+            ])}
+          </div>
+          {levelUp.names.length>0&&<div style={{color:"#fcd34d",fontSize:13,marginTop:10}}>Learned {levelUp.names.join(", ")}!</div>}
+          <button onClick={()=>{const f=levelUp.finish;setLevelUp(null);f();}} style={{...btnStyle,marginTop:14,width:"100%",padding:"10px",background:"#1e3a5f",border:"1.5px solid #60a5fa",borderRadius:8,color:"#e2e8f0",fontSize:15}}>Continue</button>
+        </div>
+      </div>}
       {/* Battle field */}
       <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around",padding:"8px 16px",position:"relative",isolation:"isolate"}}>
         <BattleBackdrop biome={biome}/>
@@ -351,13 +404,14 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
           <BattleSprite creature={activeCreature} size={120} shake={shakeP}/>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <StatusBadges b={player}/>
-            <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level} sex={activeCreature.sex}/>
+            <HpBar current={player.battleHp} max={player.maxHp} label={activeCreature.name||"Yours"} level={player.level} sex={activeCreature.sex} xp={{xp:player.xp||0,need:xpToNext(player)}}/>
           </div>
         </div>
       </div>
 
       {/* Log */}
-      <div ref={logRef} style={{height:84,background:"rgba(0,0,0,0.5)",borderTop:"1px solid #1e293b",padding:"6px 14px",overflowY:"auto",fontSize:15,color:"#cbd5e1",lineHeight:1.5}}>
+      <div ref={logRef} onClick={tapLog} style={{position:"relative",height:84,background:"rgba(0,0,0,0.5)",borderTop:"1px solid #1e293b",padding:"6px 14px",overflowY:"auto",fontSize:15,color:"#cbd5e1",lineHeight:1.5,cursor:pending&&pending.length?"pointer":"default"}}>
+        {pending&&pending.length>0&&<span style={{position:"sticky",float:"right",top:0,color:"#64748b",fontSize:11}}>tap ▸</span>}
         {log.slice(-4).map((l,i)=><div key={i} style={{opacity:i===log.slice(-4).length-1?1:0.5}}>{l}</div>)}
       </div>
 

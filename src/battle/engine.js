@@ -174,7 +174,9 @@ const levelScale = b => (18 + 8 * (b.level || 1)) / 58;
 export function executeBattleMove(atk,def,move,field=null) {
   const msgs=[];
   let ac={...atk,statMods:{...atk.statMods},fx:[...(atk.fx||[])],teamCure:null,teamBoost:null,flipOut:false,foeLeaves:false,slipsAway:false}, dc={...def,statMods:{...def.statMods},fx:[...(def.fx||[])]};
-  const done=()=>({newAttacker:ac,newDefender:dc,msgs,field});
+  // Multi-hit moves: the target's health after each hit, so the screen can show the hits one by one
+  const hpSteps=[];
+  const done=()=>({newAttacker:ac,newDefender:dc,msgs,field,hpSteps});
   // Halfway through a two-turn move (Dig): it has to finish it
   if (ac.charging) { const m=(ac.moves||[]).find(x=>x.id===ac.charging); if (m) move=m; }
   // Berserk: it picks its own move, the strongest physical one it has
@@ -277,7 +279,7 @@ export function executeBattleMove(atk,def,move,field=null) {
       if (crit) dmg*=CRIT_MULT;
       if (has(dc.fx,"knocked")) dmg*=1.25;
       dmg=Math.max(1,Math.floor(dmg));
-      const before=dc.battleHp; dc.battleHp=Math.max(0,dc.battleHp-dmg); dealt+=before-dc.battleHp; msgs.push("Hit for "+dmg+"!"); landed++;
+      const before=dc.battleHp; dc.battleHp=Math.max(0,dc.battleHp-dmg); dealt+=before-dc.battleHp; msgs.push("Hit for "+dmg+"!"); landed++; if (hits>1) hpSteps.push({ at: msgs.length-1, hp: dc.battleHp });
       if (crit) msgs.push("A critical hit!");
       holdOn(dc,msgs);
       if (has(dc.fx,"asleep") && dc.battleHp>0) { dc.fx=dc.fx.filter(f=>f.id!=="asleep"); msgs.push(`${dc.label} wakes up!`); }
