@@ -27,7 +27,7 @@ export function HpBar({current,max,label,level,sex=null,xp=null}){
   const pct=Math.max(0,Math.min(1,current/max)), over=current>max;
   const col=over?"#a3e635":pct>0.5?"#4ade80":pct>0.25?"#facc15":"#f87171";
   return(
-    <div style={{background:"#1a1a2e",border:"1px solid #2a2a4a",borderRadius:6,padding:"6px 10px",minWidth:150}}>
+    <div style={{position:"relative",overflow:"hidden",background:"#1a1a2e",border:"1px solid #2a2a4a",borderRadius:6,padding:xp?"6px 10px 8px":"6px 10px",minWidth:150}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
         <span style={{color:"#e2e8f0",fontSize:12,fontWeight:"bold"}}>{label}<SexMark sex={sex}/></span>
         <span style={{color:"#64748b",fontSize:10}}>Lv{level}</span>
@@ -36,12 +36,8 @@ export function HpBar({current,max,label,level,sex=null,xp=null}){
         <div style={{width:`${pct*100}%`,height:"100%",background:col,borderRadius:3,transition:"width 0.3s"}}/>
       </div>
       <div style={{color:over?"#a3e635":"#64748b",fontSize:10,textAlign:"right"}}>{current}/{max}{over?" 🌿":""}</div>
-      {xp&&<div title="Experience toward the next level" style={{display:"flex",alignItems:"center",gap:5,marginTop:2}}>
-        <span style={{color:"#60a5fa",fontSize:8,letterSpacing:"0.05em"}}>XP</span>
-        <div style={{flex:1,background:"#0f0f1e",borderRadius:2,height:4,overflow:"hidden"}}>
-          <div style={{width:`${Math.max(0,Math.min(1,xp.xp/xp.need))*100}%`,height:"100%",background:"#60a5fa",transition:"width 0.6s"}}/>
-        </div>
-        <span style={{color:"#64748b",fontSize:8}}>{xp.need-xp.xp} to Lv{level+1}</span>
+      {xp&&<div title="Experience toward the next level" style={{position:"absolute",left:0,right:0,bottom:0,height:3,background:"#0f0f1e"}}>
+        <div style={{width:`${Math.max(0,Math.min(1,xp.xp/xp.need))*100}%`,height:"100%",background:"#60a5fa",transition:"width 0.6s"}}/>
       </div>}
     </div>
   );
@@ -143,7 +139,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
   function settleTurn(){
     const p=playerRef.current, e=enemyRef.current;
     // Play Dead fooled the wild one, or a wild Possumbra slipped away
-    if(p.foeLeaves||e.slipsAway){ setPhase("end"); setTimeout(()=>onEnd("flee",{...p,hp:Math.min(1,p.battleHp/p.maxHp)},null,0,battleResults(p)),1200); return; }
+    if(p.foeLeaves||e.slipsAway){ setPhase("end"); setTimeout(()=>onEnd("flee",{...p,hp:Math.min(1,p.battleHp/p.maxHp)},null,0,battleResults(p)),2000); return; }
     // Tail Flip: choose who comes in (the foe doesn't get a free hit)
     if(p.flipOut&&p.battleHp>0){
       const others=(battleInventory||[]).filter((c,i)=>i>0&&c&&(c.hp||0)>0.05);
@@ -205,11 +201,11 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
         const keys=[["maxHp","HP"],["atk","Attack"],["def","Defense"],["ele","Elemental"],["res","Resistance"],["spd","Speed"]];
         const was=battleStats({...fp,level:fp.level||1},biome), now=battleStats({...fp,level:nl},biome);
         setTimeout(()=>{ setPlayer(p=>({...p,level:nl,xp:nxp})); setLevelUp({from:fp.level||1,to:nl,names:up.names,rows:keys.map(([k,n])=>({n,a:was[k],b:now[k]})),finish}); },700);
-      } else setTimeout(finish,1200);
+      } else setTimeout(finish,2400);
     } else {
       setLog(l=>[...l,"Your creature fainted..."]);
       setPhase("end");
-      setTimeout(()=>onEnd("loss",{...fp,hp:0.05},null,0,extra),1200);
+      setTimeout(()=>onEnd("loss",{...fp,hp:0.05},null,0,extra),2400);
     }
   }
   // Show a creature's move results one message at a time; HP changes when the first result shows
@@ -329,7 +325,7 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
       const caught={...wildCreature,hp:Math.min(1,e.battleHp/e.maxHp),level:e.level,statuses:toWorld(e.fx),stamina:e.stamina/e.maxSta,fatigued:!!e.fatigued};
       const mine={battleHp:player.battleHp,maxHp:player.maxHp};
       const extra=battleResults(playerRef.current);
-      afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine,pod.id,extra),400); };
+      afterQueueRef.current=()=>{ setPhase("end"); setTimeout(()=>onCapture(caught,mine,pod.id,extra),1600); };
       setPending([{msg:`You open the ${pod.label.toLowerCase()}... the ${name} steps inside!`}]);
     } else {
       const broke=Math.random()<0.25;
@@ -362,8 +358,10 @@ export function BattleScreen({playerCreature,wildCreature,onEnd,onCapture,battle
     doEnemyTurn(enemy,b,[{msg:`Go, ${b.label}!`}]);
   }
   function fleeBattle(){
+    if(phase==="end") return;
     const p=playerRef.current;
-    onEnd("flee",{...p,hp:p.battleHp/p.maxHp},null,0,battleResults(p));
+    setPhase("end"); setLog(l=>[...l,"Got away safely!"]);
+    setTimeout(()=>onEnd("flee",{...p,hp:p.battleHp/p.maxHp},null,0,battleResults(p)),1200);
   }
 
   const bg="linear-gradient(180deg,#0f172a 0%,#1e1b4b 60%,#312e81 100%)";
