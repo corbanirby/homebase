@@ -7,6 +7,7 @@ import { movePlayer } from "./movement.js";
 import { incubateCarried, hatchEgg } from "../creatures/breeding.js";
 import { PLANT_SPECIES, podPlantId } from "../plants/plants.js";
 import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
+import { surfaceOutside, JAR_MAX, jarCount, critterName } from "./critters.js";
 
 // ─── Life in the shared world ─────────────────────────────────────────────────
 // Each 16×16 area keeps a number for each species, set by how much of the land
@@ -230,9 +231,21 @@ export function simulateOutside(state, tick, input, dtMs) {
     }
   }
 
+  // Critters surface near you now and then; walk over one to scoop it into your critter jar
+  const clockNow = (state.clock || 0) + dtMs;
+  let surfaced = surfaceOutside(trip.surfaced, player, (c, r) => w.biome[r]?.[c], clockNow, dtMs);
+  let jar = state.jar || {};
+  const near = surfaced.find(s => Math.hypot(s.col - pc, s.row - pr) < 0.6);
+  if (near) {
+    if (jarCount(jar) < JAR_MAX) {
+      jar = { ...jar, [near.kind]: (jar[near.kind] || 0) + 1 }; surfaced = surfaced.filter(s => s !== near);
+      floats.push({ id: newId(), col: pc, row: pr - 0.7, text: `Scooped up a ${critterName(near.kind)} (jar ${jarCount(jar)}/${JAR_MAX})`, color: "#d9f99d", tick });
+    } else if (!trip.jarFullAt || tick - trip.jarFullAt > 100) { floats.push({ id: newId(), col: pc, row: pr - 0.7, text: "Your critter jar is full", color: "#facc15", tick }); trip = { ...trip, jarFullAt: tick }; }
+  }
+
   return {
-    ...state, creatures, floats, pods,
-    trip: { ...trip, player, wilds, rustles, lastTile: tileKey },
+    ...state, creatures, floats, pods, jar,
+    trip: { ...trip, player, wilds, rustles, surfaced, lastTile: tileKey },
     events: [...(state.events || []).slice(-30), ...events.map(e => ({ ...e, tick }))],
     tick, clock: (state.clock || 0) + dtMs, world,
     _encounter: events[0] || null,

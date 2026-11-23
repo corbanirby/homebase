@@ -1,5 +1,6 @@
 import { MAX_CATCHUP_MS } from "../config.js";
 import { growPlants, eatPlant } from "../plants/plants.js";
+import { growCritters, eatCritters, countOn } from "../sim/critters.js";
 import { SPECIES, lifeStage } from "../creatures/species.jsx";
 import { HOUR, HUNGRY_AT, WEAK_AT, habitatFit, hungerRate } from "../creatures/resident.js";
 import { stepBreeding, nestFinder } from "../creatures/breeding.js";
@@ -17,7 +18,7 @@ export function catchUp(state, land, ms) {
   const plantStats = { sprouted: 0, matured: 0, spread: 0, died: 0 };
   if (ms < 1000) return { state, report: null, plantStats };
 
-  let plants = state.plants;
+  let plants = state.plants, critters = state.critters || {};
   const grew = [], weakNow = new Set();
   let meals = 0;
   let creatures = state.creatures.map(c => ({ ...c }));
@@ -28,6 +29,7 @@ export function catchUp(state, land, ms) {
   for (let left = ms; left > 0; left -= HOUR) {
     const slice = Math.min(HOUR, left);
     const g = growPlants(plants, land, slice); plants = g.plants;
+    const gc = growCritters(critters, land, plants, rest.remains, slice); critters = gc.colonies; plants = gc.plants;
     for (const k in plantStats) plantStats[k] += g.stats[k];
     for (const c of creatures) {
       if (c.isEgg) continue;
@@ -38,6 +40,19 @@ export function catchUp(state, land, ms) {
       if (c.hp < 1 && canHeal(c)) c.hp = Math.min(1, c.hp + slice / (3 * HOUR));
       if (c.statuses?.length) Object.assign(c, tickStatuses(c, slice, 2, { home: true }));
       if ((c.stamina ?? 1) < 1 || c.fatigued) Object.assign(c, restoreStamina(c, slice, 2));
+      // Insect-eaters: forage the nearest colony with enough of what they eat (if it's nearer than a plant)
+      const ck = SPECIES[c.species]?.critters || [];
+      if (c.fullness < HUNGRY_AT && ck.length) {
+        let bk = null, bd = Infinity;
+        for (const key of Object.keys(critters)) { if (countOn(critters, key, ck) < 3) continue; const [x, y] = key.split(",").map(Number), d = Math.hypot(x + 0.5 - c.col, y + 0.5 - c.row); if (d < bd) { bd = d; bk = key; } }
+        if (bk) {
+          const r = eatCritters(critters, bk, ck, c.fullness, 0.97);
+          if (r.gained > 0) {
+            critters = r.colonies; c.fullness += r.gained; if (canHeal(c)) c.hp = Math.min(1, c.hp + r.gained * 0.5); meals++;
+            const [x, y] = bk.split(",").map(Number); c.col = x + 0.5; c.row = y + 0.6; c.state = "wander"; c.targetId = null;
+          }
+        }
+      }
       if (c.fullness < HUNGRY_AT) {
         // Graze the nearest plant it eats; it ends up standing beside it
         const eats = SPECIES[c.species]?.eats || [];
@@ -78,7 +93,7 @@ export function catchUp(state, land, ms) {
   if (meals) lines.push(`Your creatures grazed ${meals} ${meals === 1 ? "time" : "times"}`);
   const alive = new Set(creatures.map(c => c.name)), weakLeft = [...weakNow].filter(n => alive.has(n));
   if (weakLeft.length) lines.push(`${weakLeft.join(" and ")} ${weakLeft.length === 1 ? "is" : "are"} weak from hunger. Feed ${weakLeft.length === 1 ? "it" : "them"} soon or ${weakLeft.length === 1 ? "it" : "they"} will starve; more plants would help.`);
-  return { state: { ...state, ...rest, plants, creatures, clock: (state.clock || 0) + ms }, report: { awayMs: ms, lines }, plantStats };
+  return { state: { ...state, ...rest, plants, critters, surfaced: [], creatures, clock: (state.clock || 0) + ms }, report: { awayMs: ms, lines }, plantStats };
 }
 
 export function formatDuration(ms) {

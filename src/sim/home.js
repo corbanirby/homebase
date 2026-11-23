@@ -7,15 +7,18 @@ import { eatPlant, PLANT_SPECIES } from "../plants/plants.js";
 import { addXp } from "../creatures/leveling.js";
 import { levelUpMoves } from "../battle/moves.js";
 import { scuffle } from "./scuffle.js";
+import { eatCritters, countOn, surfaceStep, JAR_MAX, jarCount, critterName } from "./critters.js";
 import { movePlayer, softCollide } from "./movement.js";
 import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
 
 const STAGE_SPEED = { baby: 0.6, adolescent: 0.85, adult: 1, elder: 0.7 };
 const MEAL_TICKS = 60;   // it spends about 3 seconds at a plant, then has eaten its meal
 
-// Plants a creature can eat right now, and remains if it's a scavenger
+// Plants a creature can eat right now, remains if it's a scavenger, and critter colonies
+// (a tile with at least 3 of the kinds it eats) if it's an insect-eater
 const edible = (c, p) => !p.dead && p.stage >= 2 && p.energy > 0.2 &&
-  (p.species === "remains" ? !!SPECIES[c.species]?.scavenger : (SPECIES[c.species]?.eats || []).includes(p.species));
+  (p._critter ? (SPECIES[c.species]?.critters || []).some(k => (p.col_?.[k] || 0) >= 1) && (SPECIES[c.species]?.critters || []).reduce((t, k) => t + (p.col_?.[k] || 0), 0) >= 3
+    : p.species === "remains" ? !!SPECIES[c.species]?.scavenger : (SPECIES[c.species]?.eats || []).includes(p.species));
 
 // Nearest plant it can actually walk to, and the tiles to walk through (breadth-first over the grid)
 function findFood(c, plants, map, avoid = null) {
@@ -47,13 +50,17 @@ function findFood(c, plants, map, avoid = null) {
 export function simulateHome(state, tick, input, map, land, dtMs) {
   let { creatures, floats, events } = state;
   // Food on the ground: plants, plus remains (stage 3, so scavengers can graze them)
-  let plants = [...state.plants, ...(state.remains || []).map(r => ({ ...r, species: "remains", stage: 3, _remains: true }))];
+  let critters = state.critters || {};
+  let plants = [...state.plants, ...(state.remains || []).map(r => ({ ...r, species: "remains", stage: 3, _remains: true })),
+    // Critter colonies, as food for insect-eaters
+    ...Object.entries(critters).map(([key, col]) => { const [c, r] = key.split(",").map(Number); return { id: "cr:" + key, key, col_: col, _critter: true, species: "critters", col: c + 0.5, row: r + 0.6, stage: 3, energy: 1 }; })];
   let newFloats = floats.filter(f => tick - f.tick < 45);
   const newEvents = [];
   const player = movePlayer(state.player, input, creatures, map);
   const clock = (state.clock || 0) + dtMs;
 
   const byId = new Map(creatures.map(c => [c.id, c]));
+  const surfacedEaten = new Set();
   const moved = creatures.map(c => {
     if (c.isEgg) return c; // eggs sit where they were laid
     let { col, row, dcol, drow, age, fullness, hp, habitat, wanderTimer, state: cs, targetId, biteTimer, stageId, path, stall = 0 } = c;
@@ -105,13 +112,23 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
       else if (++biteTimer >= MEAL_TICKS) {
         // A whole meal at once: as much of the plant as it needs (grazers eat the leafy top)
         biteTimer = 0;
-        const r = eatPlant(t, fullness);
-        fullness += r.gained; if (canHeal(c)) hp = Math.min(1, hp + r.gained * 0.5); // a meal (+50% full) heals 25%
-        plants = plants.map((p, j) => j === i ? r.plant : p);
+        if (t._critter) {
+          // Insect-eaters: a meal of critters from the colony (10 make a meal)
+          const r = eatCritters(critters, t.key, SPECIES[c.species]?.critters || [], fullness);
+          critters = r.colonies; fullness += r.gained; if (canHeal(c)) hp = Math.min(1, hp + r.gained * 0.5);
+          plants = plants.map((p, j) => j === i ? { ...p, col_: critters[t.key] || {}, energy: critters[t.key] ? 1 : 0 } : p);
+          if (r.eaten) surfacedEaten.add(t.key);
+        } else {
+          const r = eatPlant(t, fullness);
+          fullness += r.gained; if (canHeal(c)) hp = Math.min(1, hp + r.gained * 0.5); // a meal (+50% full) heals 25%
+          plants = plants.map((p, j) => j === i ? r.plant : p);
+        }
         cs = "wander"; targetId = null; wanderTimer = 0;
       }
     }
     if (cs === "wander") {
+      // Ant nests bite: it won't stand around on one
+      if ((critters[Math.floor(col) + "," + Math.floor(row)]?.ant || 0) >= 8 && wanderTimer > 10) wanderTimer = 0;
       if (--wanderTimer <= 0) {
         // Sometimes stop and stand a while, sometimes amble somewhere
         // A creature with a mate tends to drift back toward it
@@ -143,9 +160,21 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
   // Food fights: two hungry creatures at one plant that can't feed them both
   const fought = foodFights(moved, plants, clock, tick, newFloats, newEvents);
 
+  // Critters surface now and then; ones on a tile an insect-eater just fed on are gone.
+  // Walk over one to scoop it into your critter jar.
+  let surfaced = surfaceStep(critters, (state.surfaced || []).filter(s => !surfacedEaten.has(s.tile)), clock, dtMs);
+  let jar = state.jar || {};
+  const near = surfaced.find(s => Math.hypot(s.col - player.col, s.row - player.row) < 0.55);
+  if (near && jarCount(jar) < JAR_MAX && (input.dx || input.dy)) {
+    jar = { ...jar, [near.kind]: (jar[near.kind] || 0) + 1 }; surfaced = surfaced.filter(s => s !== near);
+    const col = critters[near.tile];
+    if (col?.[near.kind]) { const n = col[near.kind] - 1; const nc = { ...col }; if (n < 0.5) delete nc[near.kind]; else nc[near.kind] = n; critters = { ...critters }; if (Object.keys(nc).length) critters[near.tile] = nc; else delete critters[near.tile]; }
+    newFloats.push({ id: newId(), col: player.col, row: player.row - 0.7, text: `Scooped up a ${critterName(near.kind)} (jar ${jarCount(jar)}/${JAR_MAX})`, color: "#d9f99d", tick });
+  }
+
   return {
     ...state, clock, player,
-    plants: plants.filter(p => !p._remains),
+    plants: plants.filter(p => !p._remains && !p._critter), critters, surfaced, jar,
     remains: (state.remains || []).map(r => { const f = plants.find(p => p._remains && p.id === r.id); return f ? { ...r, energy: f.energy } : r; }),
     creatures: softCollide(fought, player, map),
     floats: newFloats, events: [...events.slice(-30), ...newEvents], tick,

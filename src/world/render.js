@@ -238,6 +238,7 @@ export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, l
     });
   }
   for (const rm of state.remains || []) items.push({ y: rm.row - 0.3, draw: () => drawRemains(ctx, rm, cam, state.clock || 0) });
+  for (const cr of state.surfaced || []) items.push({ y: cr.row - 0.2, draw: () => drawCritter(ctx, cr, tick, cam, state.clock || 0) });
   for (const cr of state.creatures) items.push({ y: cr.row, draw: () => drawCreature(ctx, cr, tick, cam, cr.id === focusId) });
   items.push({ y: state.player.row, draw: () => drawPlayer(ctx, state.player, cam) });
   items.sort((a, b) => a.y - b.y);
@@ -345,6 +346,22 @@ function drawDen(ctx, col, row, size, cam) {
 }
 // Remains: one plain look per body size (small, medium, large), fading over their last half-day
 const REMAINS_MS = 2 * 24 * 3600000;
+// A critter that's come up to the surface: a few pixels, each kind its own shape
+function drawCritter(ctx, cr, tick, cam, clock) {
+  const x = Math.round(cr.col * TS - cam.x), y = Math.round(cr.row * TS - cam.y);
+  const fade = cr.until ? Math.max(0, Math.min(1, (cr.until - clock) / 1500)) : 1;
+  ctx.globalAlpha = Math.max(0.25, fade);
+  const w = Math.floor(tick / 6) % 2, dir = cr.dx < 0 ? -1 : 1, px = (dx, dy, ww = 1, hh = 1) => ctx.fillRect(x + dx * dir - (dir < 0 ? ww - 1 : 0), y + dy, ww, hh);
+  ctx.fillStyle = "rgba(0,0,0,0.25)"; ctx.fillRect(x - 3, y + 2, 7, 1);
+  if (cr.kind === "worm") { ctx.fillStyle = "#c77d7d"; px(-4, w ? 0 : -1, 2, 1); px(-2, w ? -1 : 0, 2, 1); px(0, w ? 0 : -1, 2, 1); px(2, -1, 2, 1); ctx.fillStyle = "#e0a0a0"; px(3, -1); }
+  else if (cr.kind === "beetle") { ctx.fillStyle = "#1f2f1c"; px(-3, -3, 6, 4); ctx.fillStyle = "#3d5a3a"; px(-2, -3, 4, 3); ctx.fillStyle = "#8fbf7a"; px(-1, -3, 1, 1); ctx.fillStyle = "#1f2f1c"; px(3, -2, 1, 2); if (w) { px(-3, 1); px(2, 1); } else { px(-2, 1); px(1, 1); } }
+  else if (cr.kind === "snail") { ctx.fillStyle = "#d8c9a6"; px(-4, 0, 7, 1); px(2, -2, 1, 2); ctx.fillStyle = "#8a6a3a"; px(-3, -4, 4, 4); ctx.fillStyle = "#b89a6a"; px(-2, -3, 2, 2); ctx.fillStyle = "#5a4020"; px(-2, -3); }
+  else if (cr.kind === "cricket") { ctx.fillStyle = "#5a4a22"; px(-3, -2, 6, 2); ctx.fillStyle = "#7a6a3a"; px(-2, -3, 3, 1); ctx.fillStyle = "#3a2e14"; px(-4, w ? -4 : -3, 1, 3); px(2, -1, 2, 1); px(4, -3, 1, 1); px(-2, 0); px(1, 0); }
+  else if (cr.kind === "grub") { ctx.fillStyle = "#e8dcc0"; px(-3, -2, 2, 3); px(-1, 0, 3, 1); px(1, -1, 2, 2); ctx.fillStyle = "#a8763a"; px(2, -1); }
+  else if (cr.kind === "ant") { ctx.fillStyle = "#3a1a10"; for (const o of [-5, 0, 4]) { px(o - 1, w ? -1 : 0, 1, 1); px(o, -1, 2, 1); px(o + 2, -1, 1, 1); } }
+  ctx.globalAlpha = 1;
+}
+
 function drawRemains(ctx, r, cam, clock) {
   const x = r.col * TS - cam.x, y = r.row * TS - cam.y + 4;
   const k = { small: 0.6, medium: 1, large: 1.45 }[r.size] || 1;

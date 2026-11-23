@@ -17,6 +17,7 @@ import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggCl
 import { podName, podFit, fitLabel, bestPod, podsFromPlant, makePod, starterPods, podSeedsToPods, POD_FOOD_MAX } from "./creatures/pods.js";
 import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
+import { seedCritters, growCritters, critterFit, critterName, CRITTERS, CRITTER_CAP, PER_CRITTER, JAR_MAX, jarCount } from "./sim/critters.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, wildPlants, pickWild, wildPlantSpots, areaLevel, disturbArea } from "./sim/outside.js";
 import { atlanta, areaKey, BIOME_NAMES, WORLD_V } from "./world/atlanta.js";
 import { deriveMoves, levelUpMoves, initLearnset, refreshMoves, hasLearnset, moveById, masteryTier, MASTERY, TYPE_COLORS } from "./battle/moves.js";
@@ -124,7 +125,7 @@ function makeNewWorld(){
   const she=raiseToLevel(makeResident({...spots[0],sex:"F",name:pickName()}),STARTER_LEVEL);
   const he=raiseToLevel(makeResident({...spots[1],sex:"M",name:pickName([she.name])}),STARTER_LEVEL);
   const plants=startingPlants(land);
-  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, food:{bogmoss:6,cattail:4}, events:[], floats:[], tick:0, clock:0 }) };
+  return { land, map, state:withTripFields({ creatures:[she,he], vine:[she.id,he.id], plants, player, food:{bogmoss:6,cattail:4}, critters:seedCritters(land), jar:{}, events:[], floats:[], tick:0, clock:0 }) };
 }
 
 const fmtAge=ms=>{ const d=Math.floor(ms/DAY), h=Math.floor((ms%DAY)/3600000); return d?`${d} ${d===1?"day":"days"}${h?" "+h+" h":""}`:`${h} ${h===1?"hour":"hours"}`; };
@@ -197,7 +198,7 @@ export default function Homebase(){
 
   const refreshUi=()=>{
     const s=stateRef.current; if(!s) return;
-    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:s.trip?.bag||[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],pods:s.pods||[],where:s.where,plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{},food:s.food||{},atSwap:s.where==="out"?atSwapSpot(s):true}));
+    setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:s.trip?.bag||[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],pods:s.pods||[],where:s.where,plants:s.plants.length,clock:s.clock||0,seeds:s.seeds||{},food:s.food||{},jar:s.jar||{},atSwap:s.where==="out"?atSwapSpot(s):true}));
   };
 
   // Write the current world to this browser's storage
@@ -215,7 +216,8 @@ export default function Homebase(){
     // The id counter comes back first, so eggs and babies made while catching up get fresh ids
     const ds=d.state, maxId=[...(ds.creatures||[]),...(ds.plants||[]),...(ds.pods||[]),...(ds.remains||[]),...(ds.remembered||[]),...(ds.trip?.wilds||[])].reduce((m,e)=>Math.max(m,typeof e.id==="number"?e.id:0),0);
     setNextId(Math.max(d.nextId||1,maxId+1));
-    const {state,report}=advanceAway(withTripFields(fixDuplicateIds({...d.state,vine:d.state.vine||[],events:[],floats:[]})),d.land,away,speedRef.current);
+    // Older saves: critters that live on this land naturally move in
+    const {state,report}=advanceAway(withTripFields(fixDuplicateIds({...d.state,critters:d.state.critters||seedCritters(d.land),jar:d.state.jar||{},vine:d.state.vine||[],events:[],floats:[]})),d.land,away,speedRef.current);
     const map=deriveMap(d.land);
     mapRef.current=map; groundRef.current=buildGround(map);
     stateRef.current=state; tickRef.current=0;
@@ -571,12 +573,30 @@ export default function Homebase(){
   // ── Feeding the food you carry
   const feedCreature=id=>{
     const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
+    if(c.fullness>=0.95){ addFloat(`${c.name} is full`,"#facc15"); return; }
+    // Insect-eaters: critters from your jar first (10 make a meal)
+    const ck=(SPECIES[c.species]?.critters||[]).filter(k=>(s.jar?.[k]||0)>0);
+    if(ck.length){
+      let want=Math.max(1,Math.floor((0.98-c.fullness)/PER_CRITTER)), jar={...s.jar}, n=0;
+      for(const k of ck){ const t=Math.min(want,jar[k]); jar[k]-=t; want-=t; n+=t; if(!jar[k]) delete jar[k]; if(!want) break; }
+      stateRef.current={...s,jar,creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+n*PER_CRITTER),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+n*PER_CRITTER*0.5),starving:0}:o)};
+      addFloat(`${c.name} ate ${n} ${n===1?"critter":"critters"} from your jar`,"#d9f99d"); refreshUi(); saveNow(); return;
+    }
     const kind=(SPECIES[c.species]?.eats||[]).find(k=>(s.food?.[k]||0)>0);
     if(!kind){ addFloat("No food it eats in your bag","#facc15"); return; }
-    if(c.fullness>=0.95){ addFloat(`${c.name} is full`,"#facc15"); return; }
     // A meal fills 30% and heals 15%
     stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+0.15),starving:0}:o)};
     refreshUi(); saveNow();
+  };
+  // Let the critters of one kind out of your jar onto the ground you're standing on (at home)
+  const releaseCritters=kind=>{
+    const s=stateRef.current, land=landRef.current; if(!s||s.where==="out"||!(s.jar?.[kind])) return;
+    const c=Math.floor(s.player.col), r=Math.floor(s.player.row), cell=land.cells[r]?.[c], f=critterFit(kind,cell);
+    if(f<0.15){ addFloat(`This ground doesn't suit ${critterName(kind,2)}`,"#facc15"); refreshUi(); return; }
+    const key=c+","+r, n=s.jar[kind], col={...(s.critters?.[key]||{})}; col[kind]=Math.min(CRITTER_CAP,(col[kind]||0)+n);
+    const jar={...s.jar}; delete jar[kind];
+    stateRef.current={...s,jar,critters:{...(s.critters||{}),[key]:col}};
+    addFloat(`Let ${n} ${critterName(kind,n)} go here${f<0.4?" (it doesn't suit them very well)":""}`,"#d9f99d"); refreshUi(); saveNow();
   };
   // Out in the world, creatures move between vine and bag only at your door, springs and shoals
   const moveBetween=id=>{
@@ -721,7 +741,7 @@ export default function Homebase(){
               const sN=stateRef.current, act=outsideAct(sN), tp=sN.trip.player, w=atlanta();
               focusRef.current=act?.kind==="battle"?act.wild.id:null;
               const biome=w.biome[Math.floor(tp.row)]?.[Math.floor(tp.col)];
-              setUiState(u=>({...u,creatures:sN.creatures,remembered:sN.remembered||[],pods:sN.pods||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},act,atSwap:atSwapSpot(sN),
+              setUiState(u=>({...u,creatures:sN.creatures,remembered:sN.remembered||[],pods:sN.pods||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},jar:sN.jar||{},act,atSwap:atSwapSpot(sN),
                 place:{biome:BIOME_NAMES[biome]||"",lv:Math.max(1,Math.round(areaLevel(sN.world,areaKey(tp.col,tp.row)))),area:areaKey(tp.col,tp.row)}}));
             }
             continue;
@@ -740,7 +760,9 @@ export default function Homebase(){
             const stepMs=20*TICK_MS*speedRef.current;
             const st=growLand(land,stepMs,plantEffects(stateRef.current.plants));
             const g=growPlants(stateRef.current.plants,land,stepMs);
-            stateRef.current={...stateRef.current,plants:g.plants};
+            // Critter colonies breed, spread, and help or harm the plants on their tiles
+            const gc=growCritters(stateRef.current.critters,land,g.plants,stateRef.current.remains,stepMs);
+            stateRef.current={...stateRef.current,plants:gc.plants,critters:gc.colonies};
             if(st.grew||st.thinned||st.pathsFaded||tickRef.current%200===0) landDirtyRef.current=true;
             // Pairs court, mothers lay, eggs incubate and hatch
             const sB=stateRef.current;
@@ -772,7 +794,7 @@ export default function Homebase(){
             const s=stateRef.current, pl=s.player, cell=land?.cells[Math.floor(pl.row)]?.[Math.floor(pl.col)];
             const here=cell?{wet:cell.wet,temp:cell.temp,soil:cell.soil,veg:cell.veg,trample:cell.trample,water:cell.water}:null;
             const act=actHint(); focusRef.current=act?.kind==="pet"?act.id:null;
-            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],pods:s.pods||[],where:"home",plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},food:s.food||{},garden:gardenInfo(),act,atSwap:true}));
+            setUiState(u=>({...u,creatures:s.creatures,vine:s.vine||[],bag:[],pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],pods:s.pods||[],where:"home",plants:s.plants.length,clock:s.clock||0,here,seeds:s.seeds||{},food:s.food||{},jar:s.jar||{},garden:gardenInfo(),act,atSwap:true}));
           }
         }
       } else accRef.current=0;
@@ -780,7 +802,7 @@ export default function Homebase(){
         const sO=stateRef.current, z=zoomRef.current;
         if(!outGroundRef.current) outGroundRef.current=buildGround(atlanta().tiles);
         ctx.setTransform(dpr*z,0,0,dpr*z,0,0);
-        drawWorld(ctx,dims.W/z,dims.H/z,{player:sO.trip.player,creatures:sO.trip.wilds,plants:wildPlants(sO.world),floats:sO.floats||[],rustles:sO.trip.rustles},atlanta().tiles,outGroundRef.current,tickRef.current,null,null,null,focusRef.current);
+        drawWorld(ctx,dims.W/z,dims.H/z,{player:sO.trip.player,creatures:sO.trip.wilds,plants:wildPlants(sO.world),floats:sO.floats||[],rustles:sO.trip.rustles,surfaced:sO.trip.surfaced},atlanta().tiles,outGroundRef.current,tickRef.current,null,null,null,focusRef.current);
         return;
       }
       if(landDirtyRef.current&&ts-lastGroundRef.current>400){
@@ -951,6 +973,18 @@ export default function Homebase(){
               );
             })}
             <div style={{color:"#4a5a3a",fontSize:10,lineHeight:1.4}}>Planting uses one from your food. Pods you have show up here too.</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:4}}>
+              <span style={{color:"#c8e6a0",fontSize:12,letterSpacing:"0.08em"}}>Critter jar</span>
+              <span style={{color:"#86efac",fontSize:11}}>{jarCount(uiState.jar)}/{JAR_MAX}</span>
+            </div>
+            {Object.entries(uiState.jar||{}).filter(([,n])=>n>0).map(([k,n])=>(
+              <div key={k} style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:15}}>{CRITTERS[k]?.icon}</span>
+                <div style={{flex:1,minWidth:0,color:"#e2e8f0",fontSize:12}}>{CRITTERS[k]?.name} <span style={{color:"#86efac"}}>×{n}</span></div>
+                <button onClick={()=>releaseCritters(k)}
+                  style={{...btnBase,width:62,height:30,fontSize:11,background:"rgba(217,249,157,0.1)",border:"1.5px solid rgba(217,249,157,0.4)",color:"#ecfccb"}}>Let go</button>
+              </div>))}
+            <div style={{color:"#4a5a3a",fontSize:10,lineHeight:1.4}}>{jarCount(uiState.jar)?"Let them go on ground that suits them to start a colony, or feed them to an insect-eater from its card.":"Walk over a critter when it surfaces to scoop it up, here or out in Atlanta."}</div>
           </div>
         )}
         <div style={{display:"flex",alignItems:"flex-end",justifyContent:"space-between",flex:1}}>
@@ -1377,9 +1411,11 @@ export default function Homebase(){
                     <span style={{color:"#6b7a5e",fontSize:11,width:28,textAlign:"right"}}>{i+1}/{vine.length}</span>
                   </div>); })()}
                 {(()=>{ const kind=(SPECIES[c.species]?.eats||[]).find(k=>(uiState.food?.[k]||0)>0), n=(SPECIES[c.species]?.eats||[]).reduce((a,k)=>a+(uiState.food?.[k]||0),0);
-                  return <button onClick={()=>feedCreature(c.id)} disabled={!kind||c.fullness>=0.95}
-                    style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!kind||c.fullness>=0.97?0.45:1}}>
-                    🌿 {!kind?"No food it eats in your bag":c.fullness>=0.97?"Full":`Feed ${FOOD_NAMES[kind].toLowerCase()} (${n} left)`}
+                  const cn=(SPECIES[c.species]?.critters||[]).reduce((a,k)=>a+(uiState.jar?.[k]||0),0);
+                  const can=cn>0||kind;
+                  return <button onClick={()=>feedCreature(c.id)} disabled={!can||c.fullness>=0.95}
+                    style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!can||c.fullness>=0.97?0.45:1}}>
+                    {cn>0?"🪱":"🌿"} {c.fullness>=0.97?"Full":cn>0?`Feed critters from your jar (${cn} it eats)`:!kind?"No food it eats in your bag":`Feed ${FOOD_NAMES[kind].toLowerCase()} (${n} left)`}
                   </button>; })()}
                 {uiState.where==="out"?(()=>{ const inBag=(uiState.bag||[]).includes(c.id);
                   const blocked=!uiState.atSwap||(inBag?vine.length>=VINE_MAX:((uiState.bag||[]).length>=BAG_MAX||vine.length<=1));
