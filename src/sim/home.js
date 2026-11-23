@@ -4,7 +4,8 @@ import { isPassable } from "../world/tiles.js";
 import { SPECIES, lifeStage } from "../creatures/species.jsx";
 import { HOUR, HUNGRY_AT, WEAK_AT, habitatFit, hungerRate } from "../creatures/resident.js";
 import { eatPlant, PLANT_SPECIES } from "../plants/plants.js";
-import { addXp } from "../creatures/leveling.js";
+import { addXp, strengthOf } from "../creatures/leveling.js";
+import { battleStats } from "../battle/engine.js";
 import { levelUpMoves } from "../battle/moves.js";
 import { scuffle } from "./scuffle.js";
 import { eatCritters, countOn, surfaceStep, JAR_MAX, jarCount, critterName } from "./critters.js";
@@ -108,7 +109,8 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     if (cs !== "eat" && fullness < HUNGRY_AT && (cs !== "seek" || stall > 15 || (tick + c.id) % 100 === 0)) {
       stall = 0;
       const me = { ...c, col, row, _clock: clock, _diet: dietOf(c) }, avoid = Math.floor(player.col) + "," + Math.floor(player.row);
-      const f = me._diet.sun ? null : findFood(me, plants, map, avoid) || findFood({ ...me, _scrounge: true }, plants, map, avoid);
+      // (hunters only scrounge when nearly starving: hunger is what sends them hunting)
+      const f = me._diet.sun ? null : findFood(me, plants, map, avoid) || ((!me._diet.hunts || fullness < 0.1) ? findFood({ ...me, _scrounge: true }, plants, map, avoid) : null);
       if (f) { cs = "seek"; targetId = f.plant.id; path = f.path; }
       else if (cs === "seek") { cs = "wander"; targetId = null; path = null; }
     }
@@ -187,7 +189,9 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
   });
 
   // Food fights: two hungry creatures at one plant that can't feed them both
-  const fought = foodFights(moved, plants, clock, tick, newFloats, newEvents);
+  const fought0 = foodFights(moved, plants, clock, tick, newFloats, newEvents);
+  // Predators: a very hungry hunter with nothing else to eat goes after a creature it can beat
+  const fought = predation(fought0, plants, state.remains, clock, tick, newFloats, newEvents);
 
   // Critters surface now and then; ones on a tile an insect-eater just fed on are gone.
   // Walk over one to scoop it into your critter jar.
@@ -274,4 +278,72 @@ function foodFights(creatures, plants, clock, tick, floats, events) {
     events.push({ type: "fight", a: a.name, b: b.name, winner: w.name, text, tick });
   }
   return changed.size ? creatures.map(c => changed.get(c.id) || c) : creatures;
+}
+
+// ─── Predation at home (decided Nov 23) ───────────────────────────────────────
+// A hunter (Duskhowl) hunts only when it's very hungry, nothing else it eats is around,
+// and only a creature it's strong enough to beat. First it eyes its prey (a warning:
+// feed it and it stops); after about an hour it attacks: a battle off screen with the
+// real rules, to the end. Faster prey can slip away partway. If the hunter wins, the
+// prey dies (its remains are left for scavengers) and the hunter eats. If not, the hunter
+// is hurt, still hungry, and won't try again for a couple of hours.
+// A very hungry Possumbra with nothing else to eat may raid an egg the same way (no fight).
+const VERY_HUNGRY = 0.2, EYE_MS = HOUR, HUNT_REST = 2 * HOUR;
+const PREY_MEALS = { small: 2, medium: 4, large: 6 };   // meals a kill is worth, by the prey's size
+const strength = c => strengthOf(battleStats(c));
+export function predation(creatures, plants, remains, clock, tick, floats, events) {
+  const changed = new Map(), gone = new Set();
+  const cur = c => changed.get(c.id) || c;
+  const hasOtherFood = (c, d) => (d.remains && (remains || []).some(r => (r.energy ?? 1) > 0.2)) ||
+    plants.some(p => !p.dead && !p._remains && !p._critter && p.stage >= 2 && p.energy > 0.2 && (d.graze.includes(p.species) || d.sap.includes(p.species) || d.nectar.includes(p.species)));
+  for (const c0 of creatures) {
+    if (c0.isEgg || gone.has(c0.id)) continue;
+    const c = cur(c0), d = dietOf(c), eggEater = c.species === "possumbra";
+    if (!d.hunts && !eggEater) continue;
+    if (c.fullness >= VERY_HUNGRY || (c.huntRest || 0) > clock) { if (c.stalk) changed.set(c.id, { ...c, stalk: null }); continue; }
+    if ((tick + c.id) % 40 !== 0 && !c.stalk) continue;          // looks around now and then
+    if (hasOtherFood(c, d)) { if (c.stalk) changed.set(c.id, { ...c, stalk: null }); continue; }
+    // Pick (or keep) its target: the nearest one it can beat (an egg, for a Possumbra)
+    let prey = c.stalk ? creatures.map(cur).find(o => o.id === c.stalk.id && !gone.has(o.id)) : null;
+    if (!prey) {
+      const me = strength(c);
+      const options = creatures.map(cur).filter(o => o.id !== c.id && !gone.has(o.id) && !o.diedOf &&
+        (d.hunts ? !o.isEgg && o.species !== c.species && strength(o) <= me : eggEater && o.isEgg));
+      prey = options.sort((a, b) => Math.hypot(a.col - c.col, a.row - c.row) - Math.hypot(b.col - c.col, b.row - c.row))[0];
+      if (!prey) continue;
+      changed.set(c.id, { ...c, stalk: { id: prey.id, at: clock } });
+      const what = prey.isEgg ? "an egg" : prey.name;
+      const text = `${c.name} is eyeing ${what}…`;
+      floats.push({ id: newId(), col: c.col, row: c.row - 0.8, text, color: "#fca5a5", tick });
+      events.push({ type: "stalk", text, tick });
+      continue;
+    }
+    if (clock - c.stalk.at < EYE_MS) continue;
+    // The attack
+    if (prey.isEgg) {
+      gone.add(prey.id);
+      changed.set(c.id, { ...c, stalk: null, fullness: Math.min(1, c.fullness + 0.5), state: "wander", targetId: null });
+      const text = `${c.name} ate an egg`;
+      floats.push({ id: newId(), col: prey.col, row: prey.row - 0.6, text, color: "#fca5a5", tick }); events.push({ type: "eggEaten", text, tick });
+      continue;
+    }
+    const r = scuffle(c, prey, { giveUpAt: 0, maxRounds: 40, escape: (A, B) => Math.random() < (B.spd > A.spd ? 0.2 : 0.04) });
+    if (r.winner === "a") {
+      const meals = PREY_MEALS[SPECIES[prey.species]?.appetite] ?? 3;
+      const g = addXp(c, r.aXp), up = levelUpMoves(c, g.level);
+      changed.set(c.id, { ...c, stalk: null, hp: Math.max(0.05, Math.min(c.hp ?? 1, r.aHp)), fullness: Math.min(1, c.fullness + meals * 0.5), xp: g.xp, level: g.level, moves: up.moves, learned: up.learned, state: "wander", targetId: null });
+      changed.set(prey.id, { ...prey, hp: 0, diedOfPoison: true, diedOf: "hunted", killedBy: c.name });
+      gone.add(prey.id);
+      const text = `${c.name} caught and ate ${prey.name}`;
+      floats.push({ id: newId(), col: prey.col, row: prey.row - 0.6, text, color: "#f87171", tick }); events.push({ type: "hunted", text, tick });
+    } else {
+      changed.set(c.id, { ...c, stalk: null, huntRest: clock + HUNT_REST, hp: Math.max(0.05, Math.min(c.hp ?? 1, r.aHp)) });
+      changed.set(prey.id, { ...prey, hp: Math.max(0.05, Math.min(prey.hp ?? 1, r.bHp)) });
+      const text = r.escaped ? `${prey.name} got away from ${c.name}!` : `${prey.name} fought off ${c.name}!`;
+      floats.push({ id: newId(), col: prey.col, row: prey.row - 0.6, text, color: "#fde68a", tick }); events.push({ type: "huntFailed", text, tick });
+    }
+  }
+  if (!changed.size && !gone.size) return creatures;
+  // Eggs eaten are simply gone; creatures killed stay until the deaths step takes them (leaving remains)
+  return creatures.filter(c => !(c.isEgg && gone.has(c.id))).map(c => changed.get(c.id) || c);
 }

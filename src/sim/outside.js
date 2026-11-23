@@ -69,7 +69,18 @@ export function regrowPops(world, now = Date.now(), speed = 1) {
   const pops = {}, lv = {};
   for (const [k, area] of Object.entries(w.areas)) {
     pops[k] = {};
-    for (const sp of ATLANTA_SPECIES) { const cap = capacity(area, sp), cur = world.pops[k]?.[sp] ?? cap; pops[k][sp] = cur + (cap - cur) * Math.min(1, days * REGROW); }
+    // Predators (Duskhowl) can only be as many as their prey can feed; where there are
+    // predators, prey numbers are held a little lower
+    const cur0 = sp => world.pops[k]?.[sp] ?? capacity(area, sp);
+    const hunters = ATLANTA_SPECIES.filter(sp => SPECIES[sp].appetite === "large" && sp === "duskhowl"), prey = ATLANTA_SPECIES.filter(sp => !hunters.includes(sp) && SPECIES[sp].appetite !== "large");
+    const preyN = prey.reduce((t, sp) => t + cur0(sp), 0), preyCap = prey.reduce((t, sp) => t + capacity(area, sp), 0) || 1;
+    const huntN = hunters.reduce((t, sp) => t + cur0(sp), 0);
+    for (const sp of ATLANTA_SPECIES) {
+      let cap = capacity(area, sp);
+      if (hunters.includes(sp)) cap *= Math.max(0.2, Math.min(1.3, preyN / preyCap));
+      else if (prey.includes(sp)) cap *= Math.max(0.75, 1 - 0.08 * huntN);
+      const cur = cur0(sp); pops[k][sp] = cur + (cap - cur) * Math.min(1, days * REGROW);
+    }
     lv[k] = growLevel(areaLevel(world, k), areaPotential(k), days);
   }
   return { ...world, pops, popsAt: now, lv };

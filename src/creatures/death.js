@@ -42,7 +42,7 @@ const sizeOf = c => {
   const s = (SPECIES[c.species]?.sizeMul || 1) * (c.dna.size || 1) * lifeStage(c).scale;
   return s < 0.7 ? "small" : s < 1.05 ? "medium" : "large";
 };
-export const causeText = cause => cause === "hunger" ? "hunger" : cause === "released" ? "released" : cause === "poison" ? "poison" : cause === "burn" ? "burns" : cause === "bleeding" ? "bleeding" : "old age";
+export const causeText = cause => cause === "hunted" ? "a predator's attack" : cause === "hunger" ? "hunger" : cause === "released" ? "released" : cause === "poison" ? "poison" : cause === "burn" ? "burns" : cause === "bleeding" ? "bleeding" : "old age";
 
 // Take the dead out of the living: remember them, leave remains (at home), free their mates,
 // and take them off the vine, out of the bag and out of your arms.
