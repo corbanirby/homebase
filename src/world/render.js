@@ -328,6 +328,28 @@ function drawPlant(ctx, p, cam) {
     if (p.stage === 3) for (const [dx, dy] of [[-2 - big, -h + 3], [1, -h + 5], [-1 - big, -h + 7]].slice(0, 2 + (big > 1 ? 1 : 0))) {
       px(dx, dy, big + 1, big + 1, "#2f3a1e"); px(dx, dy, big, big, POD_ICON_COLOR[PLANT_SPECIES[p.species].biome] || "#b9c97a"); px(dx, dy, 1, 1, "#eef2d8");
     }
+  } else if (p.species === "oak" || p.species === "pine") {
+    // A young tree, then a tree: a trunk and a round crown (oak) or a tall cone (pine)
+    const big = p.stage === 3 ? 1 : 0.55, th = Math.round(7 * big) + 2;
+    px(0, -th, 1, th, "#5a3e24"); if (p.stage === 3) px(-1, -2, 3, 2, "#5a3e24");
+    if (p.species === "oak") {
+      const r = Math.round(5 * big) + 1;
+      px(-r, -th - r * 2 + 1, r * 2 + 1, r * 2, "#2f5a26"); px(-r + 1, -th - r * 2, r * 2 - 1, r * 2 + 2, "#3b6e2e"); px(-r + 2, -th - r * 2 + 1, r - 1, r - 1, "#5a8f3e");
+    } else {
+      const h = Math.round(12 * big) + 3;
+      for (let i = 0; i < h; i++) { const w = Math.max(1, Math.round((i / h) * 4 * big) + 1); px(-w, -th - h + i, w * 2 + 1, 1, i % 3 ? "#1f4a2a" : "#2e6236"); }
+    }
+  } else if (p.species === "wildflower") {
+    const n = p.stage === 3 ? 4 : 2, cols = ["#f4e27a", "#ffffff", "#e9a3c9", "#b48ee0"];
+    for (let i = 0; i < n; i++) { const dx = -3 + i * 2, h = 3 + (i % 2) * 2; px(dx, -h, 1, h, "#5f8a3a"); if (p.stage === 3 && p.energy > 0.2) px(dx - 0 , -h - 1, 1, 1, cols[i % 4]); }
+  } else if (p.species === "algae") {
+    const w = Math.round((p.stage === 3 ? 6 : 4) * full) + 1;
+    px(-w, -1, w * 2, 1, "#2f6a4a"); px(-w + 1, -2, w * 2 - 2, 1, "#3f8a5a"); px(-w + 2, -2, 1, 1, "#9fd8a0"); px(w - 3, -1, 1, 1, "#9fd8a0");
+  } else if (p.species === "kudzu") {
+    // Broad three-part leaves heaped up, with purple flower spikes when grown
+    const w = Math.round((p.stage === 3 ? 6 : 3) * full) + 1;
+    px(-w, -3, w * 2, 3, "#3d7a2c"); px(-w + 1, -5, w * 2 - 2, 2, "#4f9438"); px(-2, -6, 4, 1, "#62a84a");
+    if (p.stage === 3 && p.energy > 0.4) { px(-w + 1, -7, 1, 2, "#8e5bbf"); px(w - 2, -6, 1, 2, "#8e5bbf"); }
   } else { // bog moss: a soft cushion that swells as it grows
     const w = Math.round((p.stage === 3 ? 6 : 4) * full) + 1;
     px(-w, -2, w * 2, 2, "#4f7f2e"); px(-w + 1, -3, w * 2 - 2, 1, "#6a9f3c"); px(-w + 2, -4, Math.max(1, w * 2 - 4), 1, "#8cc152");

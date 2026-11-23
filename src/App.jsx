@@ -111,7 +111,7 @@ function giveXp(c,xp){
 }
 const BAG_MAX=6;
 const REST_REFILL_MS=60*60*1000; // a spring or stretch of shoals heals again after an hour
-const FOOD_NAMES={bogmoss:"Moss clump",cattail:"Cattail shoots"};
+const FOOD_NAMES={bogmoss:"Moss clump",cattail:"Cattail shoots",oak:"Acorns",pine:"Pine seedlings",wildflower:"Wildflower seeds",algae:"Algae clumps",kudzu:"Kudzu cuttings"};
 
 // A brand-new homebase: land, wild plants, and a pair of baby Ramtarugs next to you
 function makeNewWorld(){

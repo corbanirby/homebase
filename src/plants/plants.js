@@ -25,6 +25,41 @@ export const PLANT_SPECIES = {
     food: 0.75,                // bigger, slower meals: also about half a meal a day
     seedsPerGather: 1, wetEffect: 0.05,
   },
+  // ── Brought home from Atlanta (Behavior stage, part 3) ──
+  // Trees aren't grazed: Thrummets drink their sap (part 4). They take days to grow.
+  oak: {
+    name: "Hardwood tree", icon: "🌳", tree: true,
+    wet: [0.25, 0.5, 0.82], temp: [0.2, 0.85], soils: ["rich", "poor"],
+    stageHours: [8, 48, 96],   // acorn → seedling → sapling → tree: about 6 days
+    spreadHours: 400, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.02,
+  },
+  pine: {
+    name: "Loblolly pine", icon: "🌲", tree: true,
+    wet: [0.12, 0.38, 0.7], temp: [0.25, 0.95], soils: ["poor", "sandy", "mineral"],
+    stageHours: [8, 40, 80],   // about 5 days
+    spreadHours: 300, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0,
+  },
+  // Wildflowers: Glimmerwick adults sip their nectar (part 4); grazers nibble them too
+  wildflower: {
+    name: "Wildflowers", icon: "🌼",
+    wet: [0.2, 0.45, 0.75], temp: [0.3, 0.95], soils: ["rich", "poor", "sandy"],
+    stageHours: [1, 10, 20], spreadHours: 30, regrowHours: 48, food: 0.3,
+    seedsPerGather: 2, wetEffect: 0.01,
+  },
+  // Algae: a green mat at the water's edge; Shoalclaws graze it
+  algae: {
+    name: "Algae", icon: "🟩",
+    wet: [0.66, 0.88, 1.0], temp: [0.3, 1.0], soils: ["rich", "poor", "sandy", "mineral", "rocky"],
+    stageHours: [0.5, 6, 12], spreadHours: 16, regrowHours: 36, food: 0.4,
+    seedsPerGather: 2, wetEffect: 0.02,
+  },
+  // Kudzu: grows and spreads fast, and smothers other plants next to it. Goats (and Ramtarugs) eat it.
+  kudzu: {
+    name: "Kudzu", icon: "🍃", smothers: true,
+    wet: [0.18, 0.5, 0.85], temp: [0.35, 1.0], soils: ["rich", "poor", "sandy", "mineral"],
+    stageHours: [1, 8, 16], spreadHours: 8, regrowHours: 24, food: 0.5,
+    seedsPerGather: 2, wetEffect: 0.01,
+  },
 };
 // ─── Pod plants ───────────────────────────────────────────────────────────────
 // Four kinds of land, three sizes each. Plant an empty pod and it grows into a pod
@@ -141,6 +176,10 @@ export function growPlants(plants, land, ms) {
   }
   const taken = new Set(plants.filter(p => !p.dead).map(plantKey));
   const born = [];
+  // Tiles next to grown kudzu: other plants there are slowly smothered (trees more slowly)
+  const smother = new Set();
+  for (const p of plants) if (!p.dead && p.stage === 3 && PLANT_SPECIES[p.species]?.smothers)
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) smother.add((Math.floor(p.col) + dc) + "," + (Math.floor(p.row) + dr));
   const next = plants.map(p => {
     if (p.dead) return p;
     const sp = PLANT_SPECIES[p.species]; if (!sp) return { ...p, dead: true };
@@ -148,7 +187,8 @@ export function growPlants(plants, land, ms) {
     const fit = fitOf(p.species, cell);
     let { stage, growth, energy, health } = p;
     // Wrong place: slowly wilts and dies
-    health = fit <= 0.05 ? health - ms / (8 * H) : Math.min(1, health + ms / (24 * H));
+    const smothered = !sp.smothers && smother.has(plantKey(p));
+    health = fit <= 0.05 ? health - ms / (8 * H) : smothered ? health - ms / ((sp.tree ? 120 : 40) * H) : Math.min(1, health + ms / (24 * H));
     if (health <= 0) { stats.died++; return { ...p, dead: true }; }
     // Grow toward the next stage, faster in a better spot
     if (stage < 3) {

@@ -29,7 +29,7 @@ import { placeholderSprite } from "./placeholderArt.js";
 const HOMEFOOD = ["bogmoss", "cattail"];
 export const SPECIES = {
   ramtarug: { no:1, name:"Ramtarug", growth:"medium", catchK:1, appetite:"medium", stageStats:{ baby:{hp:0.89,atk:0.69,def:0.69,ele:0.69,res:0.69,spd:0.54}, adolescent:{hp:0.91,atk:0.85,def:0.85,ele:0.85,res:0.85,spd:0.79}, adult:{hp:1.08,atk:1.0,def:1.0,ele:1.0,res:1.0,spd:0.92}, elder:{hp:1.04,atk:0.82,def:1.06,ele:0.96,res:1.06,spd:0.76} }, base:{hp:1.05,atk:1.0,def:1.0,ele:1.0,res:1.0,spd:0.95}, fastHours:24, path:"sprites/ramtarug", types:["Poison"], lifespanDays:28,
-    habitat:{ wet:[0.22,0.55,0.95] }, eats:HOMEFOOD, diet:"Moss and reeds", native:"Coastal-plain swamps (Okefenokee)", sizeMul:1,
+    habitat:{ wet:[0.22,0.55,0.95] }, eats:[...HOMEFOOD,"kudzu","wildflower"], diet:"Moss and reeds", native:"Coastal-plain swamps (Okefenokee)", sizeMul:1,
     // Elders stop fighting fast and start enduring
     elder:{ def:1.1, res:1.1, atk:0.85, spd:0.85 }, stamina:1,
     // Colour ramps in its sprite: magenta body (turns between purple-pink and rose), orange spots (red-orange to gold)
@@ -70,7 +70,7 @@ export const SPECIES = {
     learnset:[ {lv:1,move:"flintstrike"}, {lv:5,move:"pushups"}, {lv:10,move:"gritspray"}, {lv:15,move:"bask"},
       {lv:21,stage:"adolescent",move:"hotstone"}, {lv:27,stage:"adolescent",move:"taildrop"}, {lv:33,stage:"adult",move:"flintflash"},
       {lv:38,stage:"adult",move:"hotrocks"}, {lv:44,stage:"adult",move:"graniteslam"}, {lv:50,stage:"elder",move:"oldcoal"} ] },
-  shoalclaw: { no:6, name:"Shoalclaw", growth:"fast", found:{ shoal:1, creek:1, river:0.25 }, rarity:1, catchK:1.25, appetite:"small", critters:["snail"], stageStats:{ baby:{hp:0.6,atk:0.84,def:0.59,ele:0.5,res:0.6,spd:0.65}, adolescent:{hp:0.72,atk:1.02,def:0.91,ele:0.61,res:0.72,spd:0.61}, adult:{hp:0.83,atk:1.17,def:1.17,ele:0.7,res:0.83,spd:0.7}, elder:{hp:0.77,atk:1.36,def:1.09,ele:0.65,res:0.77,spd:0.49} }, base:{hp:0.95,atk:1.2,def:1.2,ele:0.85,res:0.95,spd:0.85}, fastHours:24, art:"shoalclaw", palette:{ main:{ hue:12, width:15, minSat:0.45, range:18 } }, types:["Water","Earth"], lifespanDays:18, habitat:{ wet:[0.5,0.85,1.0] }, eats:HOMEFOOD,
+  shoalclaw: { no:6, name:"Shoalclaw", growth:"fast", found:{ shoal:1, creek:1, river:0.25 }, rarity:1, catchK:1.25, appetite:"small", critters:["snail"], stageStats:{ baby:{hp:0.6,atk:0.84,def:0.59,ele:0.5,res:0.6,spd:0.65}, adolescent:{hp:0.72,atk:1.02,def:0.91,ele:0.61,res:0.72,spd:0.61}, adult:{hp:0.83,atk:1.17,def:1.17,ele:0.7,res:0.83,spd:0.7}, elder:{hp:0.77,atk:1.36,def:1.09,ele:0.65,res:0.77,spd:0.49} }, base:{hp:0.95,atk:1.2,def:1.2,ele:0.85,res:0.95,spd:0.85}, fastHours:24, art:"shoalclaw", palette:{ main:{ hue:12, width:15, minSat:0.45, range:18 } }, types:["Water","Earth"], lifespanDays:18, habitat:{ wet:[0.5,0.85,1.0] }, eats:[...HOMEFOOD,"algae"],
     diet:"Algae and debris on the riverbed", based:"Chattahoochee crayfish", biomes:{ shoal:1, creek:0.8, river:0.3 }, sizeMul:0.7, temper:[0.4,1.0],
     elder:{ atk:1.1, def:1.1, spd:0.8 }, stamina:1.0,
     learnset:[ {lv:1,move:"pinch"}, {lv:5,move:"siltcloud"}, {lv:9,move:"splash"}, {lv:14,move:"clawclamp"},
@@ -83,7 +83,7 @@ export const SPECIES = {
     learnset:[ {lv:1,move:"zap"}, {lv:4,move:"flashpattern"}, {lv:8,move:"shock"}, {lv:12,move:"nightswarm"},
       {lv:17,stage:"adolescent",move:"falsesignal"}, {lv:22,stage:"adult",move:"glowwormdrift"}, {lv:27,stage:"adult",move:"heatlightning"},
       {lv:33,stage:"elder",move:"lastlight"} ] },
-  possumbra: { no:8, name:"Possumbra", growth:"medium", found:{ forest:0.5, kudzu:0.5, pine:0.5, meadow:0.25, clay:0.25, creek:0.25 }, rarity:1, catchK:1, appetite:"medium", critters:["worm","beetle","snail","grub"], stageStats:{ baby:{hp:0.72,atk:0.57,def:0.62,ele:0.72,res:0.99,spd:0.57}, adolescent:{hp:0.91,atk:0.72,def:0.79,ele:0.91,res:1.04,spd:0.72}, adult:{hp:1.08,atk:0.85,def:0.92,ele:1.08,res:1.22,spd:0.85}, elder:{hp:1.1,atk:0.79,def:0.86,ele:1.0,res:1.26,spd:0.67} }, base:{hp:1.05,atk:0.9,def:0.95,ele:1.05,res:1.15,spd:0.9}, fastHours:48, scavenger:true, art:"possumbra", palette:{ accent:{ hue:345, width:20, minSat:0.2, range:20 } }, types:["Spirit","Normal"], lifespanDays:20, habitat:{ wet:[0.15,0.5,0.9] }, eats:HOMEFOOD,
+  possumbra: { no:8, name:"Possumbra", growth:"medium", found:{ forest:0.5, kudzu:0.5, pine:0.5, meadow:0.25, clay:0.25, creek:0.25 }, rarity:1, catchK:1, appetite:"medium", critters:["worm","beetle","snail","grub"], stageStats:{ baby:{hp:0.72,atk:0.57,def:0.62,ele:0.72,res:0.99,spd:0.57}, adolescent:{hp:0.91,atk:0.72,def:0.79,ele:0.91,res:1.04,spd:0.72}, adult:{hp:1.08,atk:0.85,def:0.92,ele:1.08,res:1.22,spd:0.85}, elder:{hp:1.1,atk:0.79,def:0.86,ele:1.0,res:1.26,spd:0.67} }, base:{hp:1.05,atk:0.9,def:0.95,ele:1.05,res:1.15,spd:0.9}, fastHours:48, scavenger:true, art:"possumbra", palette:{ accent:{ hue:345, width:20, minSat:0.2, range:20 } }, types:["Spirit","Normal"], lifespanDays:20, habitat:{ wet:[0.15,0.5,0.9] }, eats:[...HOMEFOOD,"kudzu","wildflower"],
     diet:"Almost anything", based:"Opossum (plays dead)", biomes:{ forest:0.6, kudzu:0.6, pine:0.5, meadow:0.4, clay:0.4, creek:0.3 }, sizeMul:0.9, temper:[0.05,0.45],
     // Venom-Proof: can't be poisoned
     trait:"venomProof", elder:{ hp:1.1, res:1.1, spd:0.85 }, stamina:1.1,

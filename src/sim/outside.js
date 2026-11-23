@@ -265,16 +265,20 @@ export function wildPlantSpots() {
   const w = atlanta(), out = [], WET = new Set(["creek", "water", "shoal", "spring"]);
   for (let r = 1; r < w.H - 1; r++) for (let c = 1; c < w.W - 1; c++) {
     const t = w.tiles[r][c], b = w.biome[r][c];
-    if (!isPassable(w.tiles, c + 0.5, r + 0.5) || isCover(w.tiles, c + 0.5, r + 0.5) || WET.has(t) || t === "door") continue;
+    // (kudzu grows in its own thickets, so cover is fine there)
+    if (!isPassable(w.tiles, c + 0.5, r + 0.5) || (isCover(w.tiles, c + 0.5, r + 0.5) && b !== "kudzu") || WET.has(t) || t === "door") continue;
     if (distFromDoor(c + 0.5, r + 0.5) < 4) continue;
     let bank = false;
     for (let dr = -1; dr <= 1 && !bank; dr++) for (let dc = -1; dc <= 1; dc++) if (WET.has(w.tiles[r + dr][c + dc])) { bank = true; break; }
     const h = h2(c, r, 41), z = h2(c, r, 43), size = z < 0.55 ? "small" : z < 0.85 ? "medium" : "large";
     let species = null;
-    if (bank) species = h < 0.09 ? "bogmoss" : h < 0.15 ? "cattail" : h < 0.19 ? podPlantId(size, "wetland") : null;
-    else if (b === "forest") species = h < 0.018 ? podPlantId(size, "forest") : null;
-    else if (b === "pine" || b === "clay") species = h < 0.02 ? podPlantId(size, "pine") : null;
+    if (bank) species = h < 0.09 ? "bogmoss" : h < 0.15 ? "cattail" : h < 0.19 ? podPlantId(size, "wetland") : h < 0.23 ? "algae" : null;
+    else if (b === "forest") species = h < 0.018 ? podPlantId(size, "forest") : h < 0.035 ? "oak" : null;
+    else if (b === "pine") species = h < 0.02 ? podPlantId(size, "pine") : h < 0.035 ? "pine" : null;
+    else if (b === "clay") species = h < 0.02 ? podPlantId(size, "pine") : null;
     else if (b === "granite") species = h < 0.04 ? podPlantId(size, "stone") : null;
+    else if (b === "meadow") species = h < 0.02 ? "wildflower" : null;
+    else if (b === "kudzu") species = h < 0.045 ? "kudzu" : null;
     if (species) out.push({ key: c + "," + r, species, col: c + 0.5, row: r + 0.5, stage: 3, energy: 1, health: 1, wild: true });
   }
   wildSpots = out;
@@ -292,7 +296,7 @@ export function nearWildPlant(state, now = Date.now()) {
 // Picking a wild plant: food plants give 2–3, pod plants 1–3 pods. It regrows in a few days.
 export function pickWild(world, pl, speed = 1, now = Date.now()) {
   const pod = !!PLANT_SPECIES[pl.species]?.pod;
-  const n = pod ? 1 + Math.floor(Math.random() * 3) : 2 + (Math.random() < 0.5 ? 1 : 0);
+  const n = pod ? 1 + Math.floor(Math.random() * 3) : PLANT_SPECIES[pl.species]?.tree ? 1 + (Math.random() < 0.3 ? 1 : 0) : 2 + (Math.random() < 0.5 ? 1 : 0);
   const until = now + WILD_REGROW_MS[pod ? "pod" : "food"] / speed;
   return { world: { ...world, picked: { ...(world.picked || {}), [pl.key]: until } }, n, pod };
 }
