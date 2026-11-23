@@ -31,19 +31,22 @@ export const PLANT_SPECIES = {
     name: "Hardwood tree", icon: "🌳", tree: true,
     wet: [0.25, 0.5, 0.82], temp: [0.2, 0.85], soils: ["rich", "poor"],
     stageHours: [8, 48, 96],   // acorn → seedling → sapling → tree: about 6 days
-    spreadHours: 400, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0.02,
+    spreadHours: 400, seedsPerGather: 1, wetEffect: 0.02,
+    sapHours: 24, food: 0.6,   // a grown tree's sap refills in a day: 1.2 meals a day, enough for 2 Thrummets
   },
   pine: {
     name: "Loblolly pine", icon: "🌲", tree: true,
     wet: [0.12, 0.38, 0.7], temp: [0.25, 0.95], soils: ["poor", "sandy", "mineral"],
     stageHours: [8, 40, 80],   // about 5 days
-    spreadHours: 300, regrowHours: 1e9, seedsPerGather: 1, wetEffect: 0,
+    spreadHours: 300, seedsPerGather: 1, wetEffect: 0,
+    sapHours: 24, food: 0.5,
   },
   // Wildflowers: Glimmerwick adults sip their nectar (part 4); grazers nibble them too
   wildflower: {
     name: "Wildflowers", icon: "🌼",
     wet: [0.2, 0.45, 0.75], temp: [0.3, 0.95], soils: ["rich", "poor", "sandy"],
     stageHours: [1, 10, 20], spreadHours: 30, regrowHours: 48, food: 0.3,
+    nectarHours: 24, nectarFood: 0.3,   // a grown patch's nectar refills in a day: 0.6 meals a day, enough for 1 Glimmerwick
     seedsPerGather: 2, wetEffect: 0.01,
   },
   // Algae: a green mat at the water's edge; Shoalclaws graze it
@@ -90,9 +93,17 @@ export const yieldOf = p => PLANT_SPECIES[p.species]?.food ?? GRAZE_YIELD;
 export const MAX_PLANTS = 140;
 // A grazer eats a meal: as much of the plant as it needs, up to all of the leafy top.
 // Eaten bare while it's still young (regrowing), the plant dies. Returns the plant and the fullness gained.
-export function eatPlant(p, fullness, cap = 0.98) {
-  const y = yieldOf(p), take = Math.max(0, Math.min(p.energy, (cap - fullness) / y));
+// how: "graze" (default), "sap" (a tree: never hurts it; a nymph wears it a little), "nectar" (a
+// flower's nectar: doesn't hurt it). k scales what it's worth (scrounging the wrong food: half).
+export function eatPlant(p, fullness, cap = 0.98, how = "graze", k = 1, nymph = false) {
+  const sp = PLANT_SPECIES[p.species];
+  if (how === "nectar") {
+    const y = (sp?.nectarFood ?? 0.3) * k, have = p.nectar ?? 1, take = Math.max(0, Math.min(have, (cap - fullness) / y));
+    return { plant: { ...p, nectar: have - take }, gained: take * y, killed: false };
+  }
+  const y = yieldOf(p) * k, take = Math.max(0, Math.min(p.energy, (cap - fullness) / y));
   const energy = p.energy - take;
+  if (how === "sap") return { plant: { ...p, energy, wear: (p.wear || 0) + (nymph ? 0.05 : 0) }, gained: take * y, killed: false };
   const killed = p.stage === 2 && energy < 0.05;
   return { plant: { ...p, energy, dead: p.dead || killed }, gained: take * y, killed };
 }
@@ -187,7 +198,7 @@ export function growPlants(plants, land, ms) {
     const fit = fitOf(p.species, cell);
     let { stage, growth, energy, health } = p;
     // Wrong place: slowly wilts and dies
-    const smothered = !sp.smothers && smother.has(plantKey(p));
+    const smothered = !sp.smothers && (smother.has(plantKey(p)) || p.kzSmother);
     health = fit <= 0.05 ? health - ms / (8 * H) : smothered ? health - ms / ((sp.tree ? 120 : 40) * H) : Math.min(1, health + ms / (24 * H));
     if (health <= 0) { stats.died++; return { ...p, dead: true }; }
     // Grow toward the next stage, faster in a better spot
@@ -195,8 +206,14 @@ export function growPlants(plants, land, ms) {
       growth += (ms / (sp.stageHours[stage] * H)) * (0.3 + fit * 0.7);
       // Growing up the first time fills it with food; regrowing after grazing doesn't
       if (growth >= 1) { growth = 0; stage++; if (stage === 1) stats.sprouted++; if (stage === 3) { stats.matured++; if (!p.grazedBack) energy = Math.max(energy, 0.6); } }
-      if (stage === 2) energy = Math.min(0.35, energy + ms / (sp.regrowHours * H) * 0.35);
+      if (stage === 2) energy = Math.min(0.35, energy + ms / ((sp.regrowHours || sp.sapHours || 48) * H) * 0.35);
+    } else if (sp.tree) {
+      // A grown tree: its sap refills (more slowly while many nymphs feed on its roots)
+      const wear = Math.max(0, (p.wear || 0) - ms / (24 * H) * 0.15);
+      energy = Math.min(1, energy + ms / (sp.sapHours * H) * Math.max(0.2, 1 - wear));
+      p = { ...p, wear };
     } else {
+      if (sp.nectarHours) p = { ...p, nectar: Math.min(1, (p.nectar ?? 1) + ms / (sp.nectarHours * H)) };
       // Grazed down to nothing: knocked back to young, it regrows from the roots
       // Grazed bare again and again, it dies (overgrazing)
       // (eating it again while it's young kills it: see eatPlant)

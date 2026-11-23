@@ -1,6 +1,8 @@
 import { MAX_CATCHUP_MS } from "../config.js";
 import { growPlants, eatPlant } from "../plants/plants.js";
 import { growCritters, eatCritters, countOn } from "../sim/critters.js";
+import { dietOf, SCROUNGE, SCROUNGE_YIELD } from "../creatures/diet.js";
+import { sunGain } from "../sim/home.js";
 import { SPECIES, lifeStage } from "../creatures/species.jsx";
 import { HOUR, HUNGRY_AT, WEAK_AT, habitatFit, hungerRate } from "../creatures/resident.js";
 import { stepBreeding, nestFinder } from "../creatures/breeding.js";
@@ -40,26 +42,36 @@ export function catchUp(state, land, ms) {
       if (c.hp < 1 && canHeal(c)) c.hp = Math.min(1, c.hp + slice / (3 * HOUR));
       if (c.statuses?.length) Object.assign(c, tickStatuses(c, slice, 2, { home: true }));
       if ((c.stamina ?? 1) < 1 || c.fatigued) Object.assign(c, restoreStamina(c, slice, 2));
-      // Insect-eaters: forage the nearest colony with enough of what they eat (if it's nearer than a plant)
-      const ck = SPECIES[c.species]?.critters || [];
-      if (c.fullness < HUNGRY_AT && ck.length) {
+      // Eating by diet: Kudzoon basks; insect-eaters forage the nearest colony with enough of
+      // what they eat; others graze, drink sap or sip nectar at the nearest plant they eat;
+      // with nothing they eat at home, they scrounge moss or cattail at half the value
+      const dt = dietOf(c);
+      if (dt.sun) c.fullness = Math.min(1, c.fullness + slice * sunGain(land?.cells[Math.floor(c.row)]?.[Math.floor(c.col)]));
+      if (c.fullness < HUNGRY_AT && dt.critters.length) {
         let bk = null, bd = Infinity;
-        for (const key of Object.keys(critters)) { if (countOn(critters, key, ck) < 3) continue; const [x, y] = key.split(",").map(Number), d = Math.hypot(x + 0.5 - c.col, y + 0.5 - c.row); if (d < bd) { bd = d; bk = key; } }
+        for (const key of Object.keys(critters)) { if (countOn(critters, key, dt.critters) < 3) continue; const [x, y] = key.split(",").map(Number), d = Math.hypot(x + 0.5 - c.col, y + 0.5 - c.row); if (d < bd) { bd = d; bk = key; } }
         if (bk) {
-          const r = eatCritters(critters, bk, ck, c.fullness, 0.97);
+          const r = eatCritters(critters, bk, dt.critters, c.fullness, 0.97);
           if (r.gained > 0) {
             critters = r.colonies; c.fullness += r.gained; if (canHeal(c)) c.hp = Math.min(1, c.hp + r.gained * 0.5); meals++;
             const [x, y] = bk.split(",").map(Number); c.col = x + 0.5; c.row = y + 0.6; c.state = "wander"; c.targetId = null;
           }
         }
       }
-      if (c.fullness < HUNGRY_AT) {
-        // Graze the nearest plant it eats; it ends up standing beside it
-        const eats = SPECIES[c.species]?.eats || [];
-        let best = -1, bd = Infinity;
-        plants.forEach((p, i) => { if (p.dead || p.stage < 2 || p.energy <= 0.2 || !eats.includes(p.species)) return; const d = Math.hypot(p.col - c.col, p.row - c.row); if (d < bd) { bd = d; best = i; } });
+      if (c.fullness < HUNGRY_AT && !dt.sun) {
+        const howOf = (p, scrounge) => {
+          if (p.dead || p.stage < 2) return null;
+          if (dt.sap.includes(p.species)) return p.stage === 3 && p.energy > 0.2 ? "sap" : null;
+          if (dt.nectar.includes(p.species)) return p.stage === 3 && (p.nectar ?? 1) > 0.2 ? "nectar" : null;
+          if (dt.graze.includes(p.species)) return p.energy > 0.2 ? "graze" : null;
+          return scrounge && SCROUNGE.includes(p.species) && p.energy > 0.2 ? "scrounge" : null;
+        };
+        const nearest = scrounge => { let best = -1, bd = Infinity, how = null; plants.forEach((p, i) => { const h = howOf(p, scrounge); if (!h) return; const d = Math.hypot(p.col - c.col, p.row - c.row); if (d < bd) { bd = d; best = i; how = h; } }); return { best, how }; };
+        let { best, how } = nearest(false);
+        if (best < 0 && !dt.critters.length && !dt.remains) ({ best, how } = nearest(true));
+        else if (best < 0 && c.fullness < WEAK_AT * 2) ({ best, how } = nearest(true));
         if (best >= 0) {
-          const p = plants[best], r = eatPlant(p, c.fullness, 0.97);
+          const p = plants[best], r = eatPlant(p, c.fullness, 0.97, how === "sap" ? "sap" : how === "nectar" ? "nectar" : "graze", how === "scrounge" ? SCROUNGE_YIELD : 1, how === "sap" && lifeStage(c).id === "baby");
           if (r.gained > 0) {
             c.fullness += r.gained; if (canHeal(c)) c.hp = Math.min(1, c.hp + r.gained * 0.5); meals++;
             plants = plants.map((q, i) => i === best ? r.plant : q).filter(q => !q.dead);

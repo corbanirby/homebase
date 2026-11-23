@@ -8,17 +8,30 @@ import { addXp } from "../creatures/leveling.js";
 import { levelUpMoves } from "../battle/moves.js";
 import { scuffle } from "./scuffle.js";
 import { eatCritters, countOn, surfaceStep, JAR_MAX, jarCount, critterName } from "./critters.js";
+import { dietOf, SCROUNGE, SCROUNGE_YIELD } from "../creatures/diet.js";
+import { SOILS } from "../world/land.js";
 import { movePlayer, softCollide } from "./movement.js";
 import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
 
 const STAGE_SPEED = { baby: 0.6, adolescent: 0.85, adult: 1, elder: 0.7 };
 const MEAL_TICKS = 60;   // it spends about 3 seconds at a plant, then has eaten its meal
 
-// Plants a creature can eat right now, remains if it's a scavenger, and critter colonies
-// (a tile with at least 3 of the kinds it eats) if it's an insect-eater
-const edible = (c, p) => !p.dead && p.stage >= 2 && p.energy > 0.2 &&
-  (p._critter ? (SPECIES[c.species]?.critters || []).some(k => (p.col_?.[k] || 0) >= 1) && (SPECIES[c.species]?.critters || []).reduce((t, k) => t + (p.col_?.[k] || 0), 0) >= 3
-    : p.species === "remains" ? !!SPECIES[c.species]?.scavenger : (SPECIES[c.species]?.eats || []).includes(p.species));
+// How a creature would eat this right now (its diet, by species and life stage), or null:
+// graze a plant, drink a grown tree's sap, sip a grown flower's nectar, forage a critter
+// colony (3+ of the kinds it eats), scavenge remains, or (with nothing it eats anywhere)
+// scrounge moss or cattail at half the value
+function feedOn(c, p) {
+  if (p.dead || p.stage < 2) return null;
+  const d = c._diet || dietOf(c);
+  if (p._critter) return d.critters.reduce((t, k) => t + (p.col_?.[k] || 0), 0) >= 3 ? "critters" : null;
+  if (p.species === "remains") return d.remains && p.energy > 0.2 ? "remains" : null;
+  if (d.sap.includes(p.species)) return p.stage === 3 && p.energy > 0.2 ? "sap" : null;
+  if (d.nectar.includes(p.species)) return p.stage === 3 && (p.nectar ?? 1) > 0.2 ? "nectar" : null;
+  if (d.graze.includes(p.species)) return p.energy > 0.2 ? "graze" : null;
+  if (c._scrounge && SCROUNGE.includes(p.species)) return p.energy > 0.2 ? "scrounge" : null;
+  return null;
+}
+const edible = (c, p) => !!feedOn(c, p);
 
 // Nearest plant it can actually walk to, and the tiles to walk through (breadth-first over the grid)
 function findFood(c, plants, map, avoid = null) {
@@ -74,6 +87,11 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     }
     // Getting hungry, healing, settling into the patch it's on
     fullness = Math.max(0, fullness - dtMs * hungerRate(c));
+    if (SPECIES[c.species]?.appetite && dietOf(c).sun) {
+      const cell0 = land?.cells[Math.floor(row)]?.[Math.floor(col)];
+      fullness = Math.min(1, fullness + dtMs * sunGain(cell0));
+      if (cell0 && !cell0.water) enrich(cell0, dtMs);
+    }
     // Resting at home heals fully in about 3 hours
     if (hp < 1 && canHeal(c)) hp = Math.min(1, hp + dtMs / (3 * HOUR));
     const cell = land?.cells[Math.floor(row)]?.[Math.floor(col)];
@@ -89,13 +107,14 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     // (It walks around the patch you're standing on, and plans again if it gets stuck.)
     if (cs !== "eat" && fullness < HUNGRY_AT && (cs !== "seek" || stall > 15 || (tick + c.id) % 100 === 0)) {
       stall = 0;
-      const f = findFood({ ...c, col, row, _clock: clock }, plants, map, Math.floor(player.col) + "," + Math.floor(player.row));
+      const me = { ...c, col, row, _clock: clock, _diet: dietOf(c) }, avoid = Math.floor(player.col) + "," + Math.floor(player.row);
+      const f = me._diet.sun ? null : findFood(me, plants, map, avoid) || findFood({ ...me, _scrounge: true }, plants, map, avoid);
       if (f) { cs = "seek"; targetId = f.plant.id; path = f.path; }
       else if (cs === "seek") { cs = "wander"; targetId = null; path = null; }
     }
     if (cs === "seek") {
       const t = plants.find(p => p.id === targetId);
-      if (!t || !edible(c, t)) { cs = "wander"; targetId = null; path = null; wanderTimer = 0; }
+      if (!t || !(edible(c, t) || edible({ ...c, _scrounge: true }, t))) { cs = "wander"; targetId = null; path = null; wanderTimer = 0; }
       else {
         // Walk tile by tile along the path, then straight to the plant
         while (path && path.length > 1 && Math.hypot(path[0][0] + 0.5 - col, path[0][1] + 0.5 - row) < 0.2) path = path.slice(1);
@@ -119,7 +138,8 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
           plants = plants.map((p, j) => j === i ? { ...p, col_: critters[t.key] || {}, energy: critters[t.key] ? 1 : 0 } : p);
           if (r.eaten) surfacedEaten.add(t.key);
         } else {
-          const r = eatPlant(t, fullness);
+          const how = feedOn(c, t) || feedOn({ ...c, _scrounge: true }, t) || "graze";
+          const r = eatPlant(t, fullness, 0.98, how === "sap" ? "sap" : how === "nectar" ? "nectar" : "graze", how === "scrounge" ? SCROUNGE_YIELD : 1, how === "sap" && st.id === "baby");
           fullness += r.gained; if (canHeal(c)) hp = Math.min(1, hp + r.gained * 0.5); // a meal (+50% full) heals 25%
           plants = plants.map((p, j) => j === i ? r.plant : p);
         }
@@ -157,6 +177,15 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     return out;
   });
 
+  // Kudzoons slowly smother the plants right next to them (trees much more slowly)
+  const kz = moved.filter(c => !c.isEgg && dietOf(c).sun);
+  // (marked here; the plants' own growth does the smothering, as next to grown kudzu)
+  plants = plants.map(p => {
+    if (p._remains || p._critter || p.dead) return p;
+    const near = kz.some(k => Math.abs(Math.floor(k.col) - Math.floor(p.col)) <= 1 && Math.abs(Math.floor(k.row) - Math.floor(p.row)) <= 1);
+    return near === !!p.kzSmother ? p : { ...p, kzSmother: near };
+  });
+
   // Food fights: two hungry creatures at one plant that can't feed them both
   const fought = foodFights(moved, plants, clock, tick, newFloats, newEvents);
 
@@ -179,6 +208,22 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     creatures: softCollide(fought, player, map),
     floats: newFloats, events: [...events.slice(-30), ...newEvents], tick,
   };
+}
+
+// ─── Kudzoon: sun and soil ───────────────────────────────────────────────────
+// Out in the open (no tree overhead, not in water) it fills up: about 1 meal a day on
+// poor soil, nearly 2 on rich soil; in shade very little. Where it sits, poor soil slowly
+// gets richer (kudzu fixes nitrogen): about two days of sitting raises it a step.
+const SUN_PER_MS = 0.04 / HOUR;
+export function sunGain(cell) {
+  if (!cell || cell.water || cell.edge) return 0;
+  const fert = SOILS[cell.soil]?.fert ?? 0.3;
+  return SUN_PER_MS * (cell.veg >= 3 ? 0.15 : 0.4 + 0.6 * fert);
+}
+function enrich(cell, ms) {
+  if (cell.soil !== "poor" && cell.soil !== "sandy") return;
+  cell.enrich = (cell.enrich || 0) + ms / (48 * HOUR);
+  if (cell.enrich >= 1) { cell.soil = cell.soil === "sandy" ? "poor" : "rich"; cell.enrich = 0; }
 }
 
 // ─── Food fights (decided Nov 23) ─────────────────────────────────────────────
