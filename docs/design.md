@@ -719,3 +719,21 @@ Three layers of food: **plants → critters → creatures** (plus remains and eg
 - **Pests are real:** snails, crickets and grubs damage your plants; insect-eaters keep them down.
 - **Wiped out stays wiped out:** a colony eaten to zero stays gone unless critters spread in from a neighbouring tile. Gone from your whole homebase means bringing more from the world.
 - **Collecting:** scoop up a surfaced critter in the world into a **critter jar** carried in your bag; release them at home on suitable ground to start a colony, or hand-feed them to an insect-eater.
+
+**Eating and plants (decided Nov 23):**
+- **Whole meals:** a creature eats a full meal at once, then doesn't eat again for a while (instead of nibbling constantly).
+- **Grazers eat the leafy top, not the roots:** the plant drops back to a sprout and regrows. Grazed again while still a sprout, it dies, so too many grazers strip a patch for good.
+- **Sap and nectar** (Thrummet, Glimmerwick adults) don't eat the plant: each tree has a sap flow and each flower patch a nectar flow that refills slowly; extra feeders go hungry. Many Thrummet nymphs on one tree's roots slow its growth and can stop its sap. Glimmerwick larvae eat snails, so they're limited by snails too.
+- **Bringing plants home:** wild plants give something to take, like scooping critters: acorns or a sapling from hardwood trees, wildflower seeds, a clump of algae from creeks and shoals, pine seedlings, kudzu cuttings. Plant them at home on land that suits them. Trees grow slowly (several days before they give sap).
+
+**Fights at home (decided Nov 23):**
+- **Predation:** a predator hunts only when very hungry (nearly empty), with no other food it eats nearby, and only prey it's strong enough to beat. It's a simulated battle with the real rules, off screen, with a warning first; faster prey can escape partway. If the predator wins the prey dies and is eaten; if not, the predator stays hungry and hurt. A hungry Possumbra may eat eggs.
+- **Food fights:** when food runs short, two hungry creatures that eat the same thing may scuffle: a short simulated battle that stops when one gives up at about half health (no fainting, no deaths). The winner eats first; the loser heals at home as usual. Temper decides who starts fights. The winner stays dominant at that food for about a day. Both get a quarter of the XP that fight would pay in the wild. You see a note ("Rune and Clover fought over the moss: Rune won").
+
+**Food budget (decided Nov 23; starting numbers to tune in play):**
+- A **meal** fills half a stomach. Appetite by size: small 0.6 meals a day (Glimmerwick, Scuffinch, Shoalclaw, Thrummet); medium 1 (Ramtarug, Flintback, Possumbra); large 1.5 (Clattershell, Duskhowl). Kudzoon needs one sunny tile of decent soil each instead.
+- The metabolism gene narrows from 0.4–1.6× to 0.75–1.25×.
+- What sources produce: bog moss patch 0.5 meals a day (2 patches per Ramtarug); cattail 0.5 a day in bigger, slower meals; a mature hardwood tree's sap 1.2 a day (about 2 Thrummets); a wildflower patch's nectar 0.6 a day (1 Glimmerwick adult); a critter colony on one tile about 5 critters a day without shrinking, 10 critters to a meal (about 1 Scuffinch per tile); a creature eaten as prey 2–6 meals by size.
+- (Before this: full to empty took 2 days and a moss patch gave a fifth of a stomach every 2 days, so each creature needed about 5 patches.)
+
+**Diet shaping stats** (the EV-like idea): moved to after the Behavior stage.
