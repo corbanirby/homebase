@@ -699,3 +699,23 @@ Compared with Pokémon first (see the chat): Homebase's flat 100 XP per level, w
 - **Elders are scarcer in the wild:** they count at 40% near home, rising to full in areas of level 40+. About 4% of wild creatures are elders in low areas, 7% in level-45 areas. The young-only zone by the door stays.
 - **Catch difficulty** multiplies the catch chance: easy ×1.25 (Glimmerwick, Scuffinch, Shoalclaw), normal ×1 (Possumbra, Flintback, Kudzoon, Ramtarug), hard ×0.75 (Thrummet, Clattershell), very hard ×0.45 (Duskhowl). Babies ×1.2, elders ×0.8, a fatigued creature ×1.25. Status effects on catching and the pod scene stay for stage 11.
 - This finishes the Stats pass.
+
+## Behavior stage: diets and the food web (in discussion, Nov 22–23)
+
+Three layers of food: **plants → critters → creatures** (plus remains and eggs for scavengers).
+
+**Critters (decided Nov 23):** small generic animals (not creatures: no stats, no catching). They live as colonies per tile, like plants: populations grow toward a cap set by the ground, spread to neighbouring tiles that suit them, and surface now and then so you can see them (more often where there are more). Insect-eaters chase and eat surfaced ones.
+- **Six types:**
+
+| Critter | Lives in | Eats | Effect at home | Eaten by |
+|---|---|---|---|---|
+| Earthworms | rich damp soil | decay (remains, dead leaves) | plants grow faster | Scuffinch, Clattershell, Possumbra |
+| Leaf beetles | leaf litter under trees | decay | recycles litter | Scuffinch, Flintback, Possumbra |
+| Snails | damp, shady ground | your plants | pest: nibbles plants | Glimmerwick larvae, Possumbra, Shoalclaw |
+| Crickets | meadow grass | grass and seeds | mild pest | Scuffinch, Flintback |
+| Grubs | under grass and roots | roots | pest: stunts plants | Clattershell (digs), Scuffinch, Possumbra |
+| Ants | dry, sunny ground, clay | seeds and scraps | creatures avoid nests (they bite) | Flintback, Clattershell |
+
+- **Pests are real:** snails, crickets and grubs damage your plants; insect-eaters keep them down.
+- **Wiped out stays wiped out:** a colony eaten to zero stays gone unless critters spread in from a neighbouring tile. Gone from your whole homebase means bringing more from the world.
+- **Collecting:** scoop up a surfaced critter in the world into a **critter jar** carried in your bag; release them at home on suitable ground to start a colony, or hand-feed them to an insect-eater.
