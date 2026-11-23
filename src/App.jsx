@@ -17,7 +17,7 @@ import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggCl
 import { podName, podFit, fitLabel, bestPod, podsFromPlant, makePod, starterPods, podSeedsToPods, POD_FOOD_MAX } from "./creatures/pods.js";
 import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
-import { dietWords, itemFoods } from "./creatures/diet.js";
+import { dietWords, itemFoods, dietOf } from "./creatures/diet.js";
 import { seedCritters, growCritters, critterFit, critterName, CRITTERS, CRITTER_CAP, PER_CRITTER, JAR_MAX, jarCount } from "./sim/critters.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, wildPlants, pickWild, wildPlantSpots, areaLevel, disturbArea } from "./sim/outside.js";
 import { atlanta, areaKey, BIOME_NAMES, WORLD_V } from "./world/atlanta.js";
@@ -591,9 +591,18 @@ export default function Homebase(){
     stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+0.15),starving:0}:o)};
     refreshUi(); saveNow();
   };
+  // Feed critters of one kind from the jar to a creature (up to a full meal)
+  const feedCritterTo=(id,kind)=>{
+    const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c||!(s.jar?.[kind])) return;
+    if(c.fullness>=0.95){ addFloat(`${c.name} is full`,"#facc15"); refreshUi(); return; }
+    const n=Math.min(s.jar[kind],Math.max(1,Math.floor((0.98-c.fullness)/PER_CRITTER))), jar={...s.jar}; jar[kind]-=n; if(!jar[kind]) delete jar[kind];
+    stateRef.current={...s,jar,creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+n*PER_CRITTER),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+n*PER_CRITTER*0.5),starving:0}:o)};
+    addFloat(`${c.name} ate ${n} ${critterName(kind,n)}`,"#d9f99d"); refreshUi(); saveNow();
+  };
   // Let the critters of one kind out of your jar onto the ground you're standing on (at home)
   const releaseCritters=kind=>{
-    const s=stateRef.current, land=landRef.current; if(!s||s.where==="out"||!(s.jar?.[kind])) return;
+    const s=stateRef.current, land=landRef.current; if(!s||!(s.jar?.[kind])) return;
+    if(s.where==="out"){ const n=s.jar[kind], jar={...s.jar}; delete jar[kind]; stateRef.current={...s,jar}; addFloat(`Let ${n} ${critterName(kind,n)} go`,"#d9f99d"); refreshUi(); saveNow(); return; }
     const c=Math.floor(s.player.col), r=Math.floor(s.player.row), cell=land.cells[r]?.[c], f=critterFit(kind,cell);
     if(f<0.15){ addFloat(`This ground doesn't suit ${critterName(kind,2)}`,"#facc15"); refreshUi(); return; }
     const key=c+","+r, n=s.jar[kind], col={...(s.critters?.[key]||{})}; col[kind]=Math.min(CRITTER_CAP,(col[kind]||0)+n);
@@ -1007,7 +1016,7 @@ export default function Homebase(){
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setPanel("bag")} onContextMenu={e=>e.preventDefault()} aria-label="Bag"
                 style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1}}>
-                <span style={{fontSize:14}}>🎒</span><span style={{fontSize:9,color:"#fcd34d"}}>{(uiState.bag||[]).length}/{BAG_MAX}</span>
+                <span style={{fontSize:14}}>🎒</span><span style={{fontSize:9,color:"#fcd34d"}}>{(uiState.bag||[]).length}/{BAG_MAX}{jarCount(uiState.jar)?<span style={{color:"#d9f99d"}}> · 🫙{jarCount(uiState.jar)}</span>:null}</span>
               </button>
               <button disabled={uiState.where==="out"} onClick={()=>{setShowSeeds(v=>!v);setUiState(u=>({...u,garden:gardenInfo(),food:stateRef.current?.food||{}}));}} onContextMenu={e=>e.preventDefault()} aria-label="Seeds"
                 style={{...btnBase,width:58,height:40,flexDirection:"column",gap:1,opacity:uiState.where==="out"?0.35:1,background:showSeeds?"rgba(134,239,172,0.16)":btnBase.background,border:showSeeds?"1.5px solid rgba(134,239,172,0.5)":btnBase.border}}>
@@ -1110,6 +1119,26 @@ export default function Homebase(){
             <button onClick={()=>setPanel(null)} aria-label="Close" style={closeBtn}>✕</button>
           </div>
           <div style={{...column,display:"flex",flexDirection:"column",gap:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}><span>🫙 Critter jar</span><span style={{color:"#86efac"}}>{jarCount(uiState.jar)}/{JAR_MAX}</span></div>
+            {(()=>{ const out=uiState.where==="out", here=out?creatures.filter(c=>vine.includes(c.id)||(uiState.bag||[]).includes(c.id)):creatures;
+              const kinds=Object.entries(uiState.jar||{}).filter(([,n])=>n>0);
+              if(!kinds.length) return <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>Empty. Walk over a critter when it surfaces to scoop it up, at home or out in Atlanta.</div>;
+              return kinds.map(([k,n])=>{ const eaters=here.filter(c=>!c.isEgg&&dietOf(c).critters.includes(k));
+                return (
+                <div key={k} style={{background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:18}}>{CRITTERS[k]?.icon}</span>
+                    <span style={{flex:1,color:"#e2e8f0",fontSize:13}}>{CRITTERS[k]?.name}</span>
+                    <span style={{color:"#86efac",fontSize:13,fontVariantNumeric:"tabular-nums"}}>×{n}</span>
+                    <button onClick={()=>releaseCritters(k)} style={{...btnBase,height:30,padding:"0 10px",fontSize:11,background:"rgba(217,249,157,0.1)",border:"1.5px solid rgba(217,249,157,0.4)",color:"#ecfccb"}}>{out?"Let go":"Let go here"}</button>
+                  </div>
+                  {eaters.length>0?<div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+                    <span style={{color:"#6a7a5a",fontSize:10}}>Feed to</span>
+                    {eaters.map(c=><button key={c.id} onClick={()=>feedCritterTo(c.id,k)} disabled={c.fullness>=0.95}
+                      style={{...btnBase,height:28,padding:"0 9px",fontSize:11,opacity:c.fullness>=0.95?0.4:1}}>{c.name} <span style={{color:"#86efac",marginLeft:4}}>{Math.round(c.fullness*100)}%</span></button>)}
+                  </div>:<div style={{color:"#4a5a3a",fontSize:10}}>None of your creatures {out?"with you ":""}eat {critterName(k,2)}.</div>}
+                </div>); }); })()}
+            <div style={{color:"#4a5a3a",fontSize:11,lineHeight:1.5}}>At home, letting critters go starts a colony on the tile you're standing on (if the ground suits them).</div>
             <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginTop:8}}>Food</div>
             {Object.entries(FOOD_NAMES).map(([id,label])=>(
               <div key={id} style={{display:"flex",alignItems:"center",gap:10,background:"#111611",border:"1px solid #1e261a",borderRadius:10,padding:"10px 12px"}}>
