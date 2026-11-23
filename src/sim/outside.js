@@ -2,7 +2,7 @@ import { newId } from "../engine/ids.js";
 import { isPassable, isCover } from "../world/tiles.js";
 import { atlanta, areaKey, AREA, WORLD_V } from "../world/atlanta.js";
 import { SPECIES, ATLANTA_SPECIES, lifeStage } from "../creatures/species.jsx";
-import { makeWild, DAY, STARVE_MS, HOUR } from "../creatures/resident.js";
+import { makeWild, DAY, HOUR, hungerRate } from "../creatures/resident.js";
 import { movePlayer } from "./movement.js";
 import { incubateCarried, hatchEgg } from "../creatures/breeding.js";
 import { PLANT_SPECIES, podPlantId } from "../plants/plants.js";
@@ -119,7 +119,7 @@ export function ageCarried(c, ms, inBag = false, all = []) {
   // Statuses and stamina run on the same clock: half speed asleep in the bag, normal on the vine
   if (inBag) { const age = c.age + ms * BAG_AGING; return restoreStamina(tickStatuses({ ...c, age, stageId: lifeStage({ age, maxAge: c.maxAge, species: c.species }).id }, ms, 0.5), ms, 0.5); }
   const age = c.age + ms, st = lifeStage({ age, maxAge: c.maxAge, species: c.species });
-  const rate = (c.dna.metabolism ?? 1) / STARVE_MS * VINE_HUNGER, empty = rate > 0 ? c.fullness / rate : Infinity;
+  const rate = hungerRate(c) * VINE_HUNGER, empty = rate > 0 ? c.fullness / rate : Infinity;
   const fullness = Math.max(0, c.fullness - ms * rate);
   const starving = ms > empty ? (c.fullness > 0 ? ms - empty : (c.starving || 0) + ms) : 0;
   const heal = c.hp < 1 && c.hp > 0.05 && canHeal(c); // vine heals fully in ~12 h (not while festering)

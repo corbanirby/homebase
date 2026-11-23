@@ -1,7 +1,7 @@
 import { MAX_CATCHUP_MS } from "../config.js";
-import { growPlants, GRAZE_YIELD } from "../plants/plants.js";
+import { growPlants, eatPlant } from "../plants/plants.js";
 import { SPECIES, lifeStage } from "../creatures/species.jsx";
-import { HOUR, STARVE_MS, HUNGRY_AT, WEAK_AT, habitatFit } from "../creatures/resident.js";
+import { HOUR, HUNGRY_AT, WEAK_AT, habitatFit, hungerRate } from "../creatures/resident.js";
 import { stepBreeding, nestFinder } from "../creatures/breeding.js";
 import { stepMortality, applyDeaths, stepRemains } from "../creatures/death.js";
 import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
@@ -34,7 +34,7 @@ export function catchUp(state, land, ms) {
       c.age += slice;
       const st = lifeStage(c);
       if (st.id !== c.stageId) { c.stageId = st.id; grew.push(`${c.name} grew into ${st.id === "baby" ? "a" : "an"} ${st.label.toLowerCase()}`); }
-      c.fullness = Math.max(0, c.fullness - slice / STARVE_MS * (c.dna.metabolism ?? 1));
+      c.fullness = Math.max(0, c.fullness - slice * hungerRate(c));
       if (c.hp < 1 && canHeal(c)) c.hp = Math.min(1, c.hp + slice / (3 * HOUR));
       if (c.statuses?.length) Object.assign(c, tickStatuses(c, slice, 2, { home: true }));
       if ((c.stamina ?? 1) < 1 || c.fatigued) Object.assign(c, restoreStamina(c, slice, 2));
@@ -44,10 +44,10 @@ export function catchUp(state, land, ms) {
         let best = -1, bd = Infinity;
         plants.forEach((p, i) => { if (p.dead || p.stage < 2 || p.energy <= 0.2 || !eats.includes(p.species)) return; const d = Math.hypot(p.col - c.col, p.row - c.row); if (d < bd) { bd = d; best = i; } });
         if (best >= 0) {
-          const p = plants[best], take = Math.min(p.energy - 0.05, (0.97 - c.fullness) / GRAZE_YIELD);
-          if (take > 0) {
-            c.fullness += take * GRAZE_YIELD; if (canHeal(c)) c.hp = Math.min(1, c.hp + take * GRAZE_YIELD * 0.5); meals++;
-            plants = plants.map((q, i) => i === best ? { ...q, energy: q.energy - take } : q);
+          const p = plants[best], r = eatPlant(p, c.fullness, 0.97);
+          if (r.gained > 0) {
+            c.fullness += r.gained; if (canHeal(c)) c.hp = Math.min(1, c.hp + r.gained * 0.5); meals++;
+            plants = plants.map((q, i) => i === best ? r.plant : q).filter(q => !q.dead);
             c.col = p.col + (Math.random() - 0.5) * 0.6; c.row = p.row + 0.3; c.state = "wander"; c.targetId = null;
           }
         }

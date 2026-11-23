@@ -10,7 +10,7 @@ import { makeLand, deriveMap, growLand, trample, timeSpeed, SOILS } from "./worl
 import { buildGround, drawWorld, SOIL_COLORS } from "./world/render.js";
 import { typeBg, typeEdge } from "./creatures/typeTint.js";
 import { makePlayer } from "./creatures/factory.js";
-import { makeResident, pickName, uniqueNames, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
+import { makeResident, pickName, uniqueNames, migrateDiet, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
 import { PLANT_SPECIES, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
 import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
 import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate } from "./creatures/breeding.js";
@@ -94,7 +94,7 @@ const ensureMoves=c=>c.isEgg?c:ensureParts(hasLearnset(c)&&!c.learnsetV?initLear
 const freshWorld=s=>{ if(s.world?.v===WORLD_V) return s;
   const trip=s.where==="out"&&s.trip?{...newTrip(),bag:s.trip.bag||[]}:s.trip;
   return {...s,world:makePops(),trip}; };
-const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:uniqueNames((s0.creatures||[]).map(c=>migrateLeveling(ensureMoves(ensureGenome(c)))))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:uniqueNames((s0.creatures||[]).map(c=>migrateDiet(migrateLeveling(ensureMoves(ensureGenome(c))))))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Saves hit by the old catch-up bug can have two creatures sharing an id: the later ones get new ids
 // (the vine, bag and pods keep pointing at the first)
@@ -135,7 +135,7 @@ const GENES=[
   ["speed","Speed",0.6,1.4,["Slow","Average","Fast"]],
   ["hpRange","Toughness",0.5,1.5,["Fragile","Average","Tough"]],
   ["lifespan","Lifespan",0.7,1.3,["Short","Average","Long"]],
-  ["metabolism","Appetite",0.4,1.6,["Light","Average","Big"]],
+  ["metabolism","Appetite",0.75,1.25,["Light","Average","Big"]],
   ["xpRate","Learning",0.5,1.5,["Quick","Average","Slow"]],
   ["aggression","Temper",0.2,1.0,["Calm","Even","Bold"]],
   ["elemental","Elemental",0.6,1.4,["Dull","Average","Brilliant"]],

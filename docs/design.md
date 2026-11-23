@@ -737,3 +737,6 @@ Three layers of food: **plants → critters → creatures** (plus remains and eg
 - (Before this: full to empty took 2 days and a moss patch gave a fifth of a stomach every 2 days, so each creature needed about 5 patches.)
 
 **Diet shaping stats** (the EV-like idea): moved to after the Behavior stage.
+
+**Built so far (Nov 23):**
+- *Part 1 (meals and grazing):* appetite by size (`appetite` in `species.jsx`); metabolism gene 0.75–1.25 (older saves squeezed); whole meals (about 3 seconds at a plant, then it has eaten as much as it needs); plants have a `food` value (bog moss 0.5, cattail 0.75 of a stomach when full); grazed bare, a plant drops back to young and regrows; eaten bare while young, it dies. Food fights at home as decided (temper 0.5+ starts a scuffle; calm pairs: the calmer backs down; winner dominant at that food for a day; loser avoids that plant for an hour; a quarter of the wild XP to both). For now every species still grazes moss and cattail until parts 2–4 give them their real food. Fights don't happen during the catch-up while you're away.

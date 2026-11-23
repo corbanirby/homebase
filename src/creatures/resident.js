@@ -8,7 +8,20 @@ import { SPECIES, STAGES, lifeStage, stageEnds } from "./species.jsx";
 // Everything here runs on real time: age, hunger and health are in milliseconds
 // of world time (the ?speed=N test setting scales them).
 export const HOUR = 60 * 60 * 1000, DAY = 24 * HOUR;
-export const STARVE_MS = 48 * HOUR;   // full to empty, for average metabolism
+export const STARVE_MS = 48 * HOUR;   // full to empty for a medium eater with average metabolism (one meal a day)
+// Appetite: meals a day by the species' size (a meal fills half the stomach)
+export const APPETITE = { small: 0.6, medium: 1, large: 1.5 };
+// How fast it gets hungry: fullness lost per ms
+// Saves from before Nov 23: the metabolism gene ran 0.4–1.6; squeeze it into 0.75–1.25
+const squeezeMeta = v => (v == null ? v : 1 + (v - 1) * (0.25 / 0.6));
+export function migrateDiet(c) {
+  if (c.dietV >= 1) return c;
+  const out = { ...c, dietV: 1 };
+  if (c.dna?.metabolism != null) out.dna = { ...c.dna, metabolism: squeezeMeta(c.dna.metabolism) };
+  if (c.genome?.metabolism) out.genome = { ...c.genome, metabolism: c.genome.metabolism.map(squeezeMeta) };
+  return out;
+}
+export const hungerRate = c => (APPETITE[SPECIES[c.species]?.appetite] ?? 1) * (c.dna?.metabolism ?? 1) / STARVE_MS;
 export const HUNGRY_AT = 0.6;         // below this it goes looking for food
 export const WEAK_AT = 0.15;          // below this it's too weak to do much
 export const VINE_MAX = 6;
@@ -76,7 +89,7 @@ export function makeResident({ col, row, sex, name, dna = null, species = "ramta
   const c = {
     id: newId(), type: "creature", species, name, sex, col, row, dna, genome, shown, generation: 1, moves: deriveMoves(dna, sp.types),
     bornAt: clock, age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",
-    fullness: 0.85 + Math.random() * 0.15, hp: 1, habitat: 1, level: 1, xp: 0,
+    fullness: 0.85 + Math.random() * 0.15, hp: 1, habitat: 1, level: 1, xp: 0, dietV: 1,
     dcol: 0, drow: 0, wanderTimer: 0, state: "wander", targetId: null, biteTimer: 0, petAt: 0,
   };
   return ensureParts(hasLearnset(c) ? initLearnset(c) : c);

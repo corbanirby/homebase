@@ -84,7 +84,7 @@ function makeEgg(mom, dad, col, row, clock) {
   const moves = [];
   for (const m of [pick(mom), pick(dad)]) if (m && !moves.some(x => x.id === m.id)) moves.push(m);
   return {
-    id: newId(), type: "creature", isEgg: true, species: mom.species, motherId: mom.id, fatherId: dad.id,
+    id: newId(), type: "creature", isEgg: true, dietV: 1, species: mom.species, motherId: mom.id, fatherId: dad.id,
     laidBy: mom.name, laidAt: clock, known: true, genome: childGenome(mom, dad), parts: childParts(mom, dad), eggMoves: moves,
     generation: Math.max(mom.generation || 1, dad.generation || 1) + 1,
     incubation: 0, col, row, dna: mom.dna, name: null, hp: 1, fullness: 1, age: 0, maxAge: 1, level: 1,
@@ -98,7 +98,7 @@ export function hatchEgg(egg, names = [], parentNames = []) {
   for (const k of GENE_KEYS) { shown[k] = Math.random() < 0.5 ? 0 : 1; dna[k] = egg.genome[k][shown[k]]; }
   const moves = egg.eggMoves?.length ? egg.eggMoves : deriveMoves(dna, sp.types);
   const baby = {
-    id: egg.id, type: "creature", species: egg.species, name: pickName(names, parentNames, dna), sex: Math.random() < 0.5 ? "F" : "M",
+    id: egg.id, type: "creature", dietV: 1, species: egg.species, name: pickName(names, parentNames, dna), sex: Math.random() < 0.5 ? "F" : "M",
     col: egg.col, row: egg.row, dna, genome: egg.genome, shown, moves, ...(egg.parts ? { parts: egg.parts } : {}),
     motherId: egg.motherId, fatherId: egg.fatherId, generation: egg.generation, bornAt: null,
     age: 0, maxAge: sp.lifespanDays * DAY * dna.lifespan, stageId: "baby",

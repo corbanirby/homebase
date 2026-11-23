@@ -2,14 +2,16 @@ import { COLS, ROWS } from "../config.js";
 import { newId } from "../engine/ids.js";
 import { isPassable } from "../world/tiles.js";
 import { SPECIES, lifeStage } from "../creatures/species.jsx";
-import { HOUR, STARVE_MS, HUNGRY_AT, WEAK_AT, habitatFit } from "../creatures/resident.js";
-import { GRAZE_YIELD } from "../plants/plants.js";
+import { HOUR, HUNGRY_AT, WEAK_AT, habitatFit, hungerRate } from "../creatures/resident.js";
+import { eatPlant, PLANT_SPECIES } from "../plants/plants.js";
+import { addXp } from "../creatures/leveling.js";
+import { levelUpMoves } from "../battle/moves.js";
+import { scuffle } from "./scuffle.js";
 import { movePlayer, softCollide } from "./movement.js";
 import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
 
 const STAGE_SPEED = { baby: 0.6, adolescent: 0.85, adult: 1, elder: 0.7 };
-const BITE_TICKS = 20;   // a bite about once a second
-const BITE = 0.12;       // how much one bite fills it, and takes from the plant
+const MEAL_TICKS = 60;   // it spends about 3 seconds at a plant, then has eaten its meal
 
 // Plants a creature can eat right now, and remains if it's a scavenger
 const edible = (c, p) => !p.dead && p.stage >= 2 && p.energy > 0.2 &&
@@ -18,7 +20,7 @@ const edible = (c, p) => !p.dead && p.stage >= 2 && p.energy > 0.2 &&
 // Nearest plant it can actually walk to, and the tiles to walk through (breadth-first over the grid)
 function findFood(c, plants, map, avoid = null) {
   const food = new Map();
-  for (const p of plants) if (edible(c, p)) { const k = Math.floor(p.col) + "," + Math.floor(p.row); if (!food.has(k)) food.set(k, p); }
+  for (const p of plants) if (edible(c, p) && !(c.backOff && c.backOff.id === p.id && c.backOff.until > (c._clock ?? 0))) { const k = Math.floor(p.col) + "," + Math.floor(p.row); if (!food.has(k)) food.set(k, p); }
   if (!food.size) return null;
   const sc = Math.floor(c.col), sr = Math.floor(c.row);
   const prev = new Map([[sc + "," + sr, null]]);
@@ -64,7 +66,7 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
       newEvents.push({ type: "grew", id: c.id, stage: st.id, tick });
     }
     // Getting hungry, healing, settling into the patch it's on
-    fullness = Math.max(0, fullness - dtMs / STARVE_MS * (c.dna.metabolism ?? 1));
+    fullness = Math.max(0, fullness - dtMs * hungerRate(c));
     // Resting at home heals fully in about 3 hours
     if (hp < 1 && canHeal(c)) hp = Math.min(1, hp + dtMs / (3 * HOUR));
     const cell = land?.cells[Math.floor(row)]?.[Math.floor(col)];
@@ -80,7 +82,7 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     // (It walks around the patch you're standing on, and plans again if it gets stuck.)
     if (cs !== "eat" && fullness < HUNGRY_AT && (cs !== "seek" || stall > 15 || (tick + c.id) % 100 === 0)) {
       stall = 0;
-      const f = findFood({ ...c, col, row }, plants, map, Math.floor(player.col) + "," + Math.floor(player.row));
+      const f = findFood({ ...c, col, row, _clock: clock }, plants, map, Math.floor(player.col) + "," + Math.floor(player.row));
       if (f) { cs = "seek"; targetId = f.plant.id; path = f.path; }
       else if (cs === "seek") { cs = "wander"; targetId = null; path = null; }
     }
@@ -100,11 +102,13 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
       const i = plants.findIndex(p => p.id === targetId);
       const t = plants[i];
       if (!t || t.dead || t.energy < 0.06 || fullness >= 0.97) { cs = "wander"; targetId = null; wanderTimer = 0; }
-      else if (++biteTimer >= BITE_TICKS) {
+      else if (++biteTimer >= MEAL_TICKS) {
+        // A whole meal at once: as much of the plant as it needs (grazers eat the leafy top)
         biteTimer = 0;
-        const take = Math.max(0, Math.min(BITE / GRAZE_YIELD, t.energy - 0.05, (0.98 - fullness) / GRAZE_YIELD));
-        fullness += take * GRAZE_YIELD; if (canHeal(c)) hp = Math.min(1, hp + take * GRAZE_YIELD * 0.5); // a meal (+30% full) heals 15%
-        plants = plants.map((p, j) => j === i ? { ...p, energy: p.energy - take } : p);
+        const r = eatPlant(t, fullness);
+        fullness += r.gained; if (canHeal(c)) hp = Math.min(1, hp + r.gained * 0.5); // a meal (+50% full) heals 25%
+        plants = plants.map((p, j) => j === i ? r.plant : p);
+        cs = "wander"; targetId = null; wanderTimer = 0;
       }
     }
     if (cs === "wander") {
@@ -136,11 +140,64 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
     return out;
   });
 
+  // Food fights: two hungry creatures at one plant that can't feed them both
+  const fought = foodFights(moved, plants, clock, tick, newFloats, newEvents);
+
   return {
     ...state, clock, player,
     plants: plants.filter(p => !p._remains),
     remains: (state.remains || []).map(r => { const f = plants.find(p => p._remains && p.id === r.id); return f ? { ...r, energy: f.energy } : r; }),
-    creatures: softCollide(moved, player, map),
+    creatures: softCollide(fought, player, map),
     floats: newFloats, events: [...events.slice(-30), ...newEvents], tick,
   };
+}
+
+// ─── Food fights (decided Nov 23) ─────────────────────────────────────────────
+// Two hungry creatures eating at the same plant, when it can't fill them both:
+// - if one already won here (it stays dominant for about a day), the other backs off;
+// - otherwise temper decides: if either is aggressive (temper gene 0.5+) they scuffle,
+//   a short battle off screen that stops when one gives up at half health; if both are
+//   calm, the calmer one backs down. The winner eats; the loser looks elsewhere for an hour.
+// Both earn a quarter of the XP that fight would pay in the wild.
+const DAY_MS = 24 * HOUR;
+const FIGHT_TEMPER = 0.5;
+function foodFights(creatures, plants, clock, tick, floats, events) {
+  const eaters = new Map();
+  for (const c of creatures) if (!c.isEgg && c.state === "eat" && c.targetId != null) (eaters.get(c.targetId) || eaters.set(c.targetId, []).get(c.targetId)).push(c);
+  if (![...eaters.values()].some(l => l.length > 1)) return creatures;
+  const changed = new Map();
+  const cur = c => changed.get(c.id) || c;
+  for (const [pid, list] of eaters) {
+    if (list.length < 2) continue;
+    const plant = plants.find(p => p.id === pid); if (!plant) continue;
+    const y = PLANT_SPECIES[plant.species]?.food ?? 0.5;
+    const [a0, b0] = list, a = cur(a0), b = cur(b0);
+    // Enough for both: they share
+    if (plant.energy * y >= (0.98 - a.fullness) + (0.98 - b.fullness) * 0.8) continue;
+    const backOff = (loser, winner, fight) => {
+      changed.set(loser.id, { ...loser, state: "wander", targetId: null, wanderTimer: 20, backOff: { id: pid, until: clock + HOUR } });
+      if (!fight) changed.set(winner.id, { ...winner, dominates: { ...(winner.dominates || {}), [loser.id]: clock + DAY_MS } });
+    };
+    if ((a.dominates?.[b.id] ?? 0) > clock) { backOff(b, a); continue; }
+    if ((b.dominates?.[a.id] ?? 0) > clock) { backOff(a, b); continue; }
+    const ta = a.dna?.aggression ?? 0.5, tb = b.dna?.aggression ?? 0.5;
+    if (Math.max(ta, tb) < FIGHT_TEMPER) { if (ta <= tb) backOff(a, b); else backOff(b, a); continue; }
+    // Scuffle
+    const r = scuffle(a, b);
+    const win = r.winner === "a" ? a : b, lose = r.winner === "a" ? b : a;
+    const give = (c, hpFrac, xp) => {
+      const g = addXp(c, Math.max(1, Math.round(xp / 4))), up = levelUpMoves(c, g.level);
+      if (g.level > (c.level || 1)) floats.push({ id: newId(), col: c.col, row: c.row - 0.9, text: `${c.name} grew to Lv${g.level}!`, color: "#93c5fd", tick });
+      return { ...c, hp: Math.max(0.05, Math.min(c.hp ?? 1, hpFrac)), xp: g.xp, level: g.level, moves: up.moves, learned: up.learned };
+    };
+    const w = give(win, r.winner === "a" ? r.aHp : r.bHp, r.winner === "a" ? r.aXp : r.bXp);
+    const l = give(lose, r.winner === "a" ? r.bHp : r.aHp, r.winner === "a" ? r.bXp : r.aXp);
+    changed.set(w.id, { ...w, dominates: { ...(w.dominates || {}), [l.id]: clock + DAY_MS } });
+    changed.set(l.id, { ...l, state: "wander", targetId: null, wanderTimer: 20, biteTimer: 0, backOff: { id: pid, until: clock + HOUR } });
+    const what = (PLANT_SPECIES[plant.species]?.name || "food").toLowerCase();
+    const text = `${a.name} and ${b.name} fought over the ${what}: ${w.name} won`;
+    floats.push({ id: newId(), col: w.col, row: w.row - 0.6, text, color: "#fca5a5", tick });
+    events.push({ type: "fight", a: a.name, b: b.name, winner: w.name, text, tick });
+  }
+  return changed.size ? creatures.map(c => changed.get(c.id) || c) : creatures;
 }

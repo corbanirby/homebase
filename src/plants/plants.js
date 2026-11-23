@@ -12,7 +12,8 @@ export const PLANT_SPECIES = {
     wet: [0.5, 0.82, 1.0], temp: [0.25, 0.95], soils: ["rich", "poor", "mineral"],
     stageHours: [0.5, 4, 8],   // seed → sprout → young → mature: about half a day
     spreadHours: 14,           // a mature patch drops spores next to itself about this often
-    regrowHours: 48,           // grazed food grows back slowly: a patch feeds about one creature
+    regrowHours: 48,           // grazed back, it regrows in about 2 days
+    food: 0.5,                 // a full patch is one meal (half a stomach): with regrowth, half a meal a day, so 2 patches per Ramtarug
     seedsPerGather: 2, wetEffect: 0.03,
   },
   cattail: {
@@ -21,6 +22,7 @@ export const PLANT_SPECIES = {
     stageHours: [1, 10, 24],   // about a day and a half
     spreadHours: 30,
     regrowHours: 72,
+    food: 0.75,                // bigger, slower meals: also about half a meal a day
     seedsPerGather: 1, wetEffect: 0.05,
   },
 };
@@ -47,10 +49,18 @@ for (const [biome, k] of Object.entries(POD_KINDS)) for (const size of ["small",
   };
 }
 export const GATHER_COOLDOWN_MS = 6 * H;
-// How much of a plant's food a grazing creature turns into fullness. Tuned so a new
-// homebase feeds about 6 Ramtarugs, rising to about 8 as the plants spread.
-export const GRAZE_YIELD = 0.2;
+// How much fullness a plant's food gives (its `food`, or this for remains and anything without one)
+export const GRAZE_YIELD = 0.5;
+export const yieldOf = p => PLANT_SPECIES[p.species]?.food ?? GRAZE_YIELD;
 export const MAX_PLANTS = 140;
+// A grazer eats a meal: as much of the plant as it needs, up to all of the leafy top.
+// Eaten bare while it's still young (regrowing), the plant dies. Returns the plant and the fullness gained.
+export function eatPlant(p, fullness, cap = 0.98) {
+  const y = yieldOf(p), take = Math.max(0, Math.min(p.energy, (cap - fullness) / y));
+  const energy = p.energy - take;
+  const killed = p.stage === 2 && energy < 0.05;
+  return { plant: { ...p, energy, dead: p.dead || killed }, gained: take * y, killed };
+}
 
 // How well a patch suits a plant, from 0 (can't live) to 1 (ideal)
 export function fitOf(speciesId, cell) {
@@ -149,7 +159,8 @@ export function growPlants(plants, land, ms) {
     } else {
       // Grazed down to nothing: knocked back to young, it regrows from the roots
       // Grazed bare again and again, it dies (overgrazing)
-      if (energy < 0.05) { stage = 2; growth = 0.4; energy = 0.1; health -= 0.5; p = { ...p, grazedBack: true }; if (health <= 0) { stats.died++; return { ...p, dead: true }; } }
+      // (eating it again while it's young kills it: see eatPlant)
+      if (energy < 0.05) { stage = 2; growth = 0.4; energy = 0.1; p = { ...p, grazedBack: true }; }
       else energy = Math.min(1, energy + ms / (sp.regrowHours * H));
       // Spread to a neighbouring patch that suits it
       if (stage === 3 && Math.random() < (ms / (sp.spreadHours * H)) * fit) {
