@@ -112,8 +112,8 @@ function giveXp(c,xp){
 }
 const BAG_MAX=6;
 const REST_REFILL_MS=60*60*1000; // a spring or stretch of shoals heals again after an hour
-// What to hand-feed (or pack in its pod): its own food first, otherwise any food you carry
-const foodFor=(c,food)=>itemFoods(c).find(k=>(food?.[k]||0)>0)||Object.keys(FOOD_NAMES).find(k=>(food?.[k]||0)>0);
+// What to hand-feed (or pack in its pod): only food it actually eats
+const foodFor=(c,food)=>itemFoods(c).find(k=>(food?.[k]||0)>0);
 const FOOD_NAMES={bogmoss:"Moss clump",cattail:"Cattail shoots",oak:"Acorns",pine:"Pine seedlings",wildflower:"Wildflower seeds",algae:"Algae clumps",kudzu:"Kudzu cuttings"};
 
 // A brand-new homebase: land, wild plants, and a pair of baby Ramtarugs next to you
@@ -545,7 +545,7 @@ export default function Homebase(){
   };
   const addPodFood=id=>{
     const s=stateRef.current, c=s.creatures.find(o=>o.id===id), pod=(s.pods||[]).find(p=>p.creatureId===id); if(!c||!pod||pod.food>=POD_FOOD_MAX) return;
-    const kind=foodFor(c,s.food); if(!kind){ addFloat("No food in your bag","#facc15"); return; }
+    const kind=foodFor(c,s.food); if(!kind){ addFloat(`No food ${c.name} eats in your bag`,"#facc15"); return; }
     stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},pods:s.pods.map(p=>p.id===pod.id?{...p,food:p.food+1}:p)}; refreshUi(); saveNow();
   };
   const[confirmRelease,setConfirmRelease]=useState(null);
@@ -586,7 +586,7 @@ export default function Homebase(){
       addFloat(`${c.name} ate ${n} ${n===1?"critter":"critters"} from your jar`,"#d9f99d"); refreshUi(); saveNow(); return;
     }
     const kind=foodFor(c,s.food);
-    if(!kind){ addFloat("No food in your bag","#facc15"); return; }
+    if(!kind){ addFloat(itemFoods(c).length?`No food ${c.name} eats in your bag`:`${c.name} can't be fed by hand (it eats ${dietWords(c)})`,"#facc15"); return; }
     // A meal fills 30% and heals 15%
     stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+0.15),starving:0}:o)};
     refreshUi(); saveNow();
@@ -1411,7 +1411,7 @@ export default function Homebase(){
                 </>}
                 {cardTab==="care"&&<>
                 {(()=>{ const pod=(uiState.pods||[]).find(p=>p.creatureId===c.id), empties=(uiState.pods||[]).filter(p=>p.creatureId==null).length;
-                  const foodN=Object.keys(FOOD_NAMES).reduce((a,k)=>a+(uiState.food?.[k]||0),0), out=uiState.where==="out";
+                  const foodN=itemFoods(c).reduce((a,k)=>a+(uiState.food?.[k]||0),0), out=uiState.where==="out";
                   return (
                   <div>
                     <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Pod</div>
@@ -1448,7 +1448,7 @@ export default function Homebase(){
                   const can=cn>0||kind;
                   return <button onClick={()=>feedCreature(c.id)} disabled={!can||c.fullness>=0.95}
                     style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!can||c.fullness>=0.97?0.45:1}}>
-                    {cn>0?"🪱":"🌿"} {c.fullness>=0.97?"Full":cn>0?`Feed critters from your jar (${cn} it eats)`:!kind?"No food in your bag":`Feed ${FOOD_NAMES[kind].toLowerCase()} (${n} left)${itemFoods(c).includes(kind)?"":" · not its usual food"}`}
+                    {cn>0?"🪱":"🌿"} {c.fullness>=0.97?"Full":cn>0?`Feed critters from your jar (${cn} it eats)`:kind?`Feed ${FOOD_NAMES[kind].toLowerCase()} (${n} left)`:itemFoods(c).length||dietOf(c).critters.length?"No food it eats in your bag":"Can't be fed by hand"}`}
                   </button>; })()}
                 {uiState.where==="out"?(()=>{ const inBag=(uiState.bag||[]).includes(c.id);
                   const blocked=!uiState.atSwap||(inBag?vine.length>=VINE_MAX:((uiState.bag||[]).length>=BAG_MAX||vine.length<=1));

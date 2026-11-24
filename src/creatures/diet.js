@@ -8,7 +8,7 @@
 //   sun    – Kudzoon: doesn't eat; fills up basking on open, sunny ground with decent soil
 // If nothing it eats is anywhere at home, a hungry creature scrounges moss or cattail at
 // half the value, so it stays alive (but hungry) until its home has the right food.
-// Hand-feeding works with any food you carry; its own food first.
+// Hand-feeding only works with food it eats (plants it grazes, or critters from the jar).
 import { SPECIES, lifeStage } from "./species.jsx";
 
 const D = {
@@ -45,5 +45,6 @@ export function dietWords(c) {
   if (d.hunts) out.push("other creatures");
   return out.join("; ");
 }
-// The food items (gathered plants) it eats, for hand-feeding
-export const itemFoods = c => { const d = dietOf(c); return [...d.graze, ...d.sap, ...d.nectar]; };
+// The food items (gathered plants) it eats, for hand-feeding: only plants it grazes.
+// (Sap, nectar, sun and prey can't be carried; insect-eaters are fed from the critter jar.)
+export const itemFoods = c => dietOf(c).graze;
