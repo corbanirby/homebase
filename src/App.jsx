@@ -19,6 +19,7 @@ import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText,
 import { simulateHome } from "./sim/home.js";
 import { dietWords, itemFoods, dietOf } from "./creatures/diet.js";
 import { seedCritters, growCritters, critterFit, critterName, CRITTERS, CRITTER_CAP, PER_CRITTER, JAR_MAX, jarCount } from "./sim/critters.js";
+import { feedAtWild } from "./sim/outside.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, wildPlants, pickWild, wildPlantSpots, areaLevel, disturbArea } from "./sim/outside.js";
 import { atlanta, areaKey, BIOME_NAMES, WORLD_V } from "./world/atlanta.js";
 import { deriveMoves, levelUpMoves, initLearnset, refreshMoves, hasLearnset, moveById, masteryTier, MASTERY, TYPE_COLORS } from "./battle/moves.js";
@@ -344,6 +345,16 @@ export default function Homebase(){
     const r=(s.remains||[]).find(r=>Math.hypot(r.col-s.player.col,r.row-s.player.row)<1.3);
     if(r) return {kind:"remains",label:"Remains",name:r.name};
     return null;
+  };
+  // Out in Atlanta: let your vine creatures feed at the wild plant you're standing by
+  const feedWild=()=>{
+    const s0=stateRef.current; if(!s0||s0.where!=="out") return;
+    const key=outsideAct(s0)?.feed?.key, pl=key&&wildPlantSpots().find(p=>p.key===key); if(!pl) return;
+    const r=feedAtWild(s0,pl,speedRef.current);
+    if(!r.fed.length){ addFloat("No one here is hungry for that","#94a3b8",s0.trip.player); refreshUi(); return; }
+    stateRef.current=r.state;
+    addFloat(r.fed.length===1?`${r.fed[0].name} ${r.fed[0].how}`:`${r.fed.map(f=>f.name).join(", ")} fed`,"#a7f3d0",s0.trip.player);
+    refreshUi(); saveNow();
   };
   const doAct=()=>{
     const s0=stateRef.current; if(!s0) return;
@@ -1008,6 +1019,10 @@ export default function Homebase(){
                 <span style={{fontSize:17}}>{{pet:"🤚",harvest:"🌾",out:"🚪",home:"🚪",battle:"⚔️",rest:"💧"}[uiState.act?.kind]||"✋"}</span>
                 <span style={{fontSize:10,maxWidth:88,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{uiState.act?.label||"ACT"}</span>
               </button>
+              {uiState.where==="out"&&uiState.act?.feed&&<button onClick={feedWild} onContextMenu={e=>e.preventDefault()} aria-label="Let them feed"
+                style={{...btnBase,width:64,height:52,borderRadius:14,flexDirection:"column",gap:2,background:"rgba(167,243,208,0.12)",border:"2px solid rgba(167,243,208,0.5)",color:"#a7f3d0"}}>
+                <span style={{fontSize:16}}>🍃</span><span style={{fontSize:9,lineHeight:1.1,textAlign:"center"}}>Let them feed ({uiState.act.feed.n})</span>
+              </button>}
               <button onClick={()=>{setPanel("creatures");refreshUi();}} onContextMenu={e=>e.preventDefault()} aria-label="Your creatures"
                 style={{...btnBase,width:58,height:52,borderRadius:14,flexDirection:"column",gap:2}}>
                 <span style={{fontSize:17}}>🐾</span><span style={{fontSize:9,color:"#86efac"}}>{vine.length}/{VINE_MAX}</span>
