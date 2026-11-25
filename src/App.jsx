@@ -483,7 +483,7 @@ export default function Homebase(){
     if(r.why){ addFloat(r.why,"#facc15",s.trip?.player); return; }
     stateRef.current=r.state; setCardId(null); setPanel(null); refreshUi(); saveNow();
   };
-  fnRef.current={goOut:()=>goOut(),letOutToForage,helpFight,doAct:()=>doAct(),refreshUi};
+  fnRef.current={goOut:()=>goOut(),letOutToForage,helpFight,doAct:()=>doAct(),refreshUi,startBattle};
   const callBackForager=()=>{ const s=stateRef.current; if(!s?.trip?.forage) return; stateRef.current=callBack(s); refreshUi(); };
   const swapToFront=idx=>{
     const p=[...partyRef.current]; const t=p[0]; p[0]=p[idx]; p[idx]=t;

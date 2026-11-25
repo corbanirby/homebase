@@ -1,11 +1,11 @@
 # Homebase sprites
 
-How creature sprites are made and added. Ramtarug, Scuffinch and Thrummet have real sprites so far; the other seven use code-drawn placeholders (`src/creatures/placeholderArt.js`) until theirs are made.
+How creature sprites are made and added. Ramtarug, Scuffinch, Thrummet and Possumbra have real sprites so far; the other six use code-drawn placeholders (`src/creatures/placeholderArt.js`) until theirs are made.
 
 ## The format (match Ramtarug)
 
 - **Frame:** 96×96 PNG with a transparent background. Pixel art, crisp edges, no anti-aliased blur. The creature is drawn side-on / three-quarter, standing on the bottom third of the frame with room above for horns, wings and tails.
-- **Directions (8):** `north`, `north-east`, `east`, `south-east`, `south`, `south-west`, `west`, `north-west`.
+- **Directions (8):** `north`, `north-east`, `east`, `south-east`, `south`, `south-west`, `west`, `north-west`. In battle a wild foe shows its `south-west` view and yours its `north-east`, so draft and approve the south-west view first.
 - **Life stages:** `baby`, `adolescent`, `adult`, `elder` (one set of 8 for each). The game also draws younger stages smaller on the map, so a baby sprite can fill its frame.
 - **Files:** `public/sprites/<species>/<stage>/<direction>.png`, e.g. `public/sprites/scuffinch/adult/south-east.png`. Species folder names are the lowercase ids in `src/creatures/species.jsx` (`kudzoon`, `thrummet`, `scuffinch`, `flintback`, `shoalclaw`, `glimmerwick`, `possumbra`, `clattershell`, `duskhowl`).
 - **Look:** Heroes of Might and Magic III–style pixel art, readable at small size on a top-down map and big in battle. Look at `public/sprites/ramtarug/` before starting a new species.
@@ -38,6 +38,6 @@ Each species' full concept and moves are in `docs/design.md`. The sprites should
 - **Flintback** (Earth/Fire; eastern fence lizard on hot granite). Grey-brown spiny scales like flint, sparks/ember glow along the back, blue belly patches on adults; it bobs push-ups and drops its tail. Baby small and plain; elder darker, coal-like.
 - **Shoalclaw** (Water/Earth; Chattahoochee crayfish). Red-brown armoured crayfish, one oversized crushing claw, long antennae, fan tail. Baby translucent and tiny; elder huge scarred claw.
 - **Glimmerwick** (Electric/Bug; firefly). Tiny dark beetle with a red-and-yellow head shield and a glowing yellow-green tail lantern. Baby could be a glowworm larva; elder's light dimmer and flickering.
-- **Possumbra** (Spirit/Normal; opossum that plays dead). Grey-white opossum, pale face, pink nose and bare pink tail, dark ears, a faint ghostly purple aura (Spirit). Baby rides small and fuzzy; elder grizzled and thinner.
+- **Possumbra** (Spirit/Normal; Georgia opossum that plays dead). **Done November 25.** "Creepy calm": three standout features are a pale white skull-like face with a pink nose and glossy black eyes with a violet glint; a bare pink curled tail; and a violet haze clinging to the grey-white fur and rising off it like smoke. Baby: small fuzzy joey, big head and ears, a wisp of haze at its feet. Adolescent: a neat smaller adult (real young opossums aren't lanky), sleek fur, dark legs, lighter haze. Adult: as above. Elder: almost pure white and wispy, fading to violet at the edges, glowing violet eyes, a thick pale haze (old and half spirit). Colours: main = the violet haze (about 285°), accent = pink nose, ears and tail (about 345°). Made as four PixelLab characters (v3 from a front view, with the approved south-west battle view imported as drawn): adult `b2006546-45b1-4d56-bde5-c7fc54009578`, baby `e9486ea1-83ab-4d3b-ab23-6cf77380c82a`, adolescent `d48ffb41-2268-4f9f-ad56-379baf178010`, elder `454502ae-39c1-4451-a4e5-b0d182722e03`.
 - **Clattershell** (Metal/Earth; nine-banded armadillo). Metal-plated armadillo with banded shell, long snout, digging claws. (Georgia's armadillos can't roll into a ball.) Elder: scratched, heavier plates.
 - **Duskhowl** (Normal/Spirit; coyote, rare apex hunter). Tawny-grey coyote, lean and long-legged, with a faint dusk-purple shadow around it (Spirit). Elder: grey muzzle, the old pack leader.
