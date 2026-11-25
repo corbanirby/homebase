@@ -38,7 +38,7 @@ export function stepMortality(creatures, ms, { hungerCounted = false } = {}) {
   return { alive, died };
 }
 
-const sizeOf = c => {
+export const sizeOf = c => {
   const s = (SPECIES[c.species]?.sizeMul || 1) * (c.dna.size || 1) * lifeStage(c).scale;
   return s < 0.7 ? "small" : s < 1.05 ? "medium" : "large";
 };

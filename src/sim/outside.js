@@ -8,7 +8,7 @@ import { incubateCarried, hatchEgg } from "../creatures/breeding.js";
 import { PLANT_SPECIES, podPlantId } from "../plants/plants.js";
 import { tickStatuses, restoreStamina, canHeal } from "../battle/statuses.js";
 import { surfaceOutside, JAR_MAX, jarCount, critterName } from "./critters.js";
-import { dietOf } from "../creatures/diet.js";
+import { HELP_DIST } from "./forage.js";
 
 // ─── Life in the shared world ─────────────────────────────────────────────────
 // Each 16×16 area keeps a number for each species, set by how much of the land
@@ -200,6 +200,7 @@ export function simulateOutside(state, tick, input, dtMs) {
     if (isPassable(map, c, r) && !isCover(map, c, r) && distFromDoor(c, r) > 4) { const wd = wildAt(world, c, r); if (wd) wilds = [...wilds, { ...wd, mood: null }]; }
   }
   wilds = wilds.map(c => {
+    if (c.mood === "stalk") return c; // closing in on your foraging creature (moved in forage.js)
     let { col, row, dcol, drow, wanderTimer, mood } = c;
     const dx = pc - col, dy = pr - row, d = Math.hypot(dx, dy);
     const st = lifeStage(c);
@@ -313,32 +314,6 @@ export function pickWild(world, pl, speed = 1, now = Date.now()) {
   return { world: { ...world, picked: { ...(world.picked || {}), [pl.key]: until } }, n, pod };
 }
 
-// Letting your vine creatures feed at a wild plant: those that drink its sap (trees), sip its
-// nectar (wildflowers) or graze it, and aren't full. Sap and nectar don't use the plant up;
-// grazing eats it (it's gone until it regrows) and one plant is one plant's worth of food.
-export function wildFeeders(state, pl) {
-  const vine = new Set(state.vine || []);
-  return state.creatures.filter(c => vine.has(c.id) && !c.isEgg && (c.fullness ?? 1) < 0.95 && (() => {
-    const d = dietOf(c); return d.sap.includes(pl.species) || d.nectar.includes(pl.species) || d.graze.includes(pl.species);
-  })());
-}
-export function feedAtWild(state, pl, speed = 1, now = Date.now()) {
-  const who = wildFeeders(state, pl), sp = PLANT_SPECIES[pl.species];
-  let left = (sp?.food ?? 0.5), grazed = false;
-  const fed = [];
-  const creatures = state.creatures.map(c => {
-    if (!who.includes(c)) return c;
-    const d = dietOf(c), drink = d.sap.includes(pl.species) || d.nectar.includes(pl.species);
-    let gain = 0.98 - (c.fullness ?? 0);
-    if (!drink) { gain = Math.min(gain, left); left -= gain; if (gain > 0) grazed = true; }
-    if (gain <= 0.005) return c;
-    fed.push({ name: c.name, how: d.sap.includes(pl.species) ? "drank sap" : d.nectar.includes(pl.species) ? "sipped nectar" : "grazed" });
-    return { ...c, fullness: (c.fullness ?? 0) + gain, hp: canHeal(c) ? Math.min(1, (c.hp ?? 1) + gain * 0.5) : c.hp, starving: 0 };
-  });
-  const world = grazed ? { ...state.world, picked: { ...(state.world?.picked || {}), [pl.key]: now + WILD_REGROW_MS.food / speed } } : state.world;
-  return { state: { ...state, creatures, world }, fed, grazed };
-}
-
 // A resting spot you're standing at: your door, a spring, or a river shoal
 export function spotAt(state) {
   const w = atlanta(), p = state.trip.player;
@@ -350,10 +325,12 @@ export function spotAt(state) {
 // What Act would do here
 export function outsideAct(state) {
   const p = state.trip.player;
+  const fi = state.trip.forage?.fight;
+  if (fi && Math.hypot(fi.col - p.col, fi.row - p.row) < HELP_DIST) return { kind: "help", label: "Help!" };
   const near = state.trip.wilds.map(c => ({ c, d: Math.hypot(c.col - p.col, c.row - p.row) })).filter(x => x.d < 1.6).sort((a, b) => a.d - b.d)[0];
   if (near) return { kind: "battle", label: "Battle", wild: near.c };
   const pl = nearWildPlant(state);
-  if (pl) return { kind: "forage", label: PLANT_SPECIES[pl.species].pod ? "Pick pods" : { oak: "Gather acorns", pine: "Dig a seedling", wildflower: "Gather seeds", kudzu: "Take cuttings", algae: "Scoop algae" }[pl.species] || "Pick " + PLANT_SPECIES[pl.species].name.toLowerCase(), key: pl.key, feed: wildFeeders(state, pl).length ? { key: pl.key, n: wildFeeders(state, pl).length } : null };
+  if (pl) return { kind: "forage", label: PLANT_SPECIES[pl.species].pod ? "Pick pods" : { oak: "Gather acorns", pine: "Dig a seedling", wildflower: "Gather seeds", kudzu: "Take cuttings", algae: "Scoop algae" }[pl.species] || "Pick " + PLANT_SPECIES[pl.species].name.toLowerCase(), key: pl.key };
   const spot = spotAt(state);
   if (spot === "door") return { kind: "home", label: "Go home" };
   if (spot) return { kind: "rest", label: "Rest" };

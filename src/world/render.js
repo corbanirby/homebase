@@ -244,6 +244,14 @@ export function drawWorld(ctx, W, H, state, map, ground, tick, overlay = null, l
   items.sort((a, b) => a.y - b.y);
   for (const it of items) it.draw();
 
+  // Health bars over a fight out in the world
+  for (const b of state.bars || []) {
+    const x = Math.round(b.col * TS - cam.x - 14), y = Math.round(b.row * TS - cam.y - 52);
+    ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(x - 1, y - 1, 30, 6);
+    const v = Math.max(0, Math.min(1, b.v));
+    ctx.fillStyle = v > 0.5 ? "#4ade80" : v > 0.2 ? "#facc15" : "#f87171"; ctx.fillRect(x, y, Math.round(28 * v), 4);
+    if (b.mine) { ctx.strokeStyle = "#a7f3d0"; ctx.lineWidth = 1; ctx.strokeRect(x - 1.5, y - 1.5, 31, 7); }
+  }
   drawFloats(ctx, state.floats, tick, cam);
 }
 

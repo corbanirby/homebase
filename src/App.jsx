@@ -19,7 +19,7 @@ import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText,
 import { simulateHome } from "./sim/home.js";
 import { dietWords, itemFoods, dietOf } from "./creatures/diet.js";
 import { seedCritters, growCritters, critterFit, critterName, CRITTERS, CRITTER_CAP, PER_CRITTER, JAR_MAX, jarCount } from "./sim/critters.js";
-import { feedAtWild } from "./sim/outside.js";
+import { HELP_DIST as HELP_DIST_UI, letOut, callBack, stepForage, forageSprites, wildFromFight, fromBattler, addWildRemains, stepWildRemains, canForage } from "./sim/forage.js";
 import { simulateOutside, outsideAct, atSwapSpot, spotAt, makePops, regrowPops, newTrip, ageCarried, takeFromPop, wildPlants, pickWild, wildPlantSpots, areaLevel, disturbArea } from "./sim/outside.js";
 import { atlanta, areaKey, BIOME_NAMES, WORLD_V } from "./world/atlanta.js";
 import { deriveMoves, levelUpMoves, initLearnset, refreshMoves, hasLearnset, moveById, masteryTier, MASTERY, TYPE_COLORS } from "./battle/moves.js";
@@ -154,6 +154,7 @@ const condColor=v=>v>=0.85?"#86efac":v>=0.65?"#bef264":v>=0.45?"#facc15":"#f8717
 
 export default function Homebase(){
   const canvasRef=useRef(null);
+  const fnRef=useRef({});
   const stateRef=useRef(null);
   const tickRef=useRef(0);          // world steps since this session's world was loaded
   const animRef=useRef(null);
@@ -184,7 +185,7 @@ export default function Homebase(){
   const pausedRef=useRef(false);
   const inputRef=useRef({dx:0,dy:0});
   // Test hook: with ?debug in the address, automated tests can steer and read the world
-  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots,moveById,engine:{makeBattler,executeBattleMove,endOfRound,aiPickMove,leechDrain}}; },[]);
+  useEffect(()=>{ if(/[?&]debug/.test(window.location.search)) window.__hb={stateRef,inputRef,battleRef,wildPlantSpots,moveById,engine:{makeBattler,executeBattleMove,endOfRound,aiPickMove,leechDrain}}; if(window.__hb) window.__hb.fn=fnRef; },[]);
 
   const[saveInfo,setSaveInfo]=useState(()=>readSave());
   const[screen,setScreen]=useState("title"); // title | game
@@ -346,23 +347,14 @@ export default function Homebase(){
     if(r) return {kind:"remains",label:"Remains",name:r.name};
     return null;
   };
-  // Out in Atlanta: let your vine creatures feed at the wild plant you're standing by
-  const feedWild=()=>{
-    const s0=stateRef.current; if(!s0||s0.where!=="out") return;
-    const key=outsideAct(s0)?.feed?.key, pl=key&&wildPlantSpots().find(p=>p.key===key); if(!pl) return;
-    const r=feedAtWild(s0,pl,speedRef.current);
-    if(!r.fed.length){ addFloat("No one here is hungry for that","#94a3b8",s0.trip.player); refreshUi(); return; }
-    stateRef.current=r.state;
-    addFloat(r.fed.length===1?`${r.fed[0].name} ${r.fed[0].how}`:`${r.fed.map(f=>f.name).join(", ")} fed`,"#a7f3d0",s0.trip.player);
-    refreshUi(); saveNow();
-  };
   const doAct=()=>{
     const s0=stateRef.current; if(!s0) return;
     const hint=actHint();
     if(s0.where==="out"){
       if(!hint){ addFloat("Nothing to do here","#94a3b8",s0.trip.player); return; }
       if(hint.kind==="battle"){ startBattle(hint.wild,"approach"); return; }
-      if(hint.kind==="home"){ goHome(); return; }
+      if(hint.kind==="home"){ if(s0.trip.forage?.fight){ addFloat(`${s0.creatures.find(c=>c.id===s0.trip.forage.id)?.name} is in a fight! Help it first`,"#f87171",s0.trip.player); return; } goHome(); return; }
+      if(hint.kind==="help"){ helpFight(); return; }
       if(hint.kind==="forage"){
         const pl=wildPlantSpots().find(p=>p.key===hint.key); if(!pl) return;
         const {world,n,pod}=pickWild(s0.world,pl,speedRef.current), sp=PLANT_SPECIES[pl.species];
@@ -458,10 +450,12 @@ export default function Homebase(){
   };
 
   // ── Battles out in the shared world
-  const startBattle=(wild,how)=>{
+  const startBattle=(wild,how,leadId=null)=>{
     const s=stateRef.current; if(!s||battleRef.current) return;
-    const vineC=(s.vine||[]).map(id=>s.creatures.find(c=>c.id===id)).filter(Boolean);
-    const lead=vineC.findIndex(c=>(c.hp||0)>0.05);
+    // A creature out foraging isn't with you (unless you've come to help it)
+    const outId=leadId==null?s.trip?.forage?.id:null;
+    const vineC=(s.vine||[]).filter(id=>id!==outId).map(id=>s.creatures.find(c=>c.id===id)).filter(Boolean);
+    const lead=leadId!=null?vineC.findIndex(c=>c.id===leadId):vineC.findIndex(c=>(c.hp||0)>0.05);
     const trip={...s.trip,wilds:s.trip.wilds.filter(w=>w.id!==wild.id)};
     if(lead<0){
       stateRef.current={...s,trip};
@@ -475,6 +469,22 @@ export default function Homebase(){
     const tp=s.trip.player, biome=atlanta().biome[Math.floor(tp.row)]?.[Math.floor(tp.col)]||null;
     const b={wild,how,biome,key:Date.now()}; battleRef.current=b; setBattle(b);
   };
+  // Walked over to your foraging creature's fight: it becomes a real battle, your creature in front
+  const helpFight=()=>{
+    const s=stateRef.current, f=s?.trip?.forage, fi=f?.fight; if(!fi) return;
+    const c=s.creatures.find(o=>o.id===f.id); if(!c) return;
+    const wild={...wildFromFight(fi),col:fi.wildPos.col,row:fi.wildPos.row};
+    stateRef.current={...s,creatures:s.creatures.map(o=>o.id===c.id?fromBattler(o,fi.A):o),trip:{...s.trip,forage:null}};
+    startBattle(wild,"help",c.id);
+  };
+  const letOutToForage=id=>{
+    const s=stateRef.current; if(!s) return;
+    const r=letOut(s,id,tickRef.current);
+    if(r.why){ addFloat(r.why,"#facc15",s.trip?.player); return; }
+    stateRef.current=r.state; setCardId(null); setPanel(null); refreshUi(); saveNow();
+  };
+  fnRef.current={goOut:()=>goOut(),letOutToForage,helpFight,doAct:()=>doAct(),refreshUi};
+  const callBackForager=()=>{ const s=stateRef.current; if(!s?.trip?.forage) return; stateRef.current=callBack(s); refreshUi(); };
   const swapToFront=idx=>{
     const p=[...partyRef.current]; const t=p[0]; p[0]=p[idx]; p[idx]=t;
     partyRef.current=p; setParty(p);
@@ -522,7 +532,7 @@ export default function Homebase(){
       goHome(true); return;
     }
     // A wild creature that faints in battle dies: one fewer of its kind in this area
-    if(wild&&result==="win"){ stateRef.current={...s,world:disturbArea(takeFromPop(s.world,wild.col,wild.row,wild.species),wild.col,wild.row)}; addFloat(`The wild ${speciesOf(wild).name} fainted and didn't survive`,"#cbd5c0",s.trip.player); }
+    if(wild&&result==="win"){ stateRef.current={...s,world:addWildRemains(disturbArea(takeFromPop(s.world,wild.col,wild.row,wild.species),wild.col,wild.row),wild,wild.col,wild.row,s.clock||0)}; addFloat(`The wild ${speciesOf(wild).name} fainted and didn't survive`,"#cbd5c0",s.trip.player); }
     else if(wild) addFloat("You got away","#cbd5c0",s.trip.player);
     refreshUi(); saveNow();
   };
@@ -563,6 +573,7 @@ export default function Homebase(){
   const releaseCreature=id=>{
     const s=stateRef.current; if(!s||s.where!=="out") return;
     const c=s.creatures.find(o=>o.id===id); if(!c||c.isEgg) return;
+    if(s.trip?.forage?.id===id){ addFloat(`${c.name} is out foraging`,"#facc15",s.trip.player); return; }
     if((s.vine||[]).length<=1&&(s.vine||[]).includes(id)){ addFloat("You need at least one creature on your vine","#facc15",s.trip.player); return; }
     const d=applyDeaths(s,[{c,cause:"released"}],s.clock||0,{leaveRemains:false});
     const tp=s.trip.player;
@@ -618,6 +629,7 @@ export default function Homebase(){
   const moveBetween=id=>{
     const s=stateRef.current; if(!s||s.where!=="out"||!atSwapSpot(s)) return;
     if(s.creatures.find(c=>c.id===id)?.isEgg) return; // eggs stay in the bag
+    if(s.trip?.forage?.id===id) return; // out foraging
     const onVine=(s.vine||[]).includes(id), bag=s.trip.bag||[];
     if(onVine){
       if(bag.length>=BAG_MAX||s.vine.length<=1) return;
@@ -742,6 +754,25 @@ export default function Homebase(){
             const enc=next._encounter; delete next._encounter;
             stateRef.current=next;
             if(enc){ startBattle(enc.wild,enc.how); break; }
+            // One of yours out foraging
+            if(stateRef.current.trip?.forage){
+              const fr=stepForage(stateRef.current,tickRef.current,wildPlants(stateRef.current.world),speedRef.current);
+              stateRef.current=fr.state;
+              for(const e of fr.events){
+                if(e.type==="wildKilled"){ const sk=stateRef.current; stateRef.current={...sk,world:takeFromPop(sk.world,e.wild.col,e.wild.row,e.wild.species)}; saveNow(); }
+                if(e.type==="fight"||e.type==="trouble"){ try{navigator.vibrate?.(e.type==="fight"?[120,60,120]:60);}catch{} }
+                if(e.type==="forageDied"){
+                  const sD=stateRef.current, dc=sD.creatures.find(c=>c.id===e.id);
+                  if(dc){
+                    const d=applyDeaths({...sD,trip:{...sD.trip,forage:null}},[{c:dc,cause:"hunted"}],sD.clock||0,{leaveRemains:false});
+                    stateRef.current={...d.state,world:addWildRemains(d.state.world,dc,e.col,e.row,sD.clock||0,dc.name)};
+                    setAwayReport({awayMs:0,lines:[`${dc.name} was killed by a wild ${e.by} while it was out foraging`,...d.lines],title:"Sad news"}); saveNow();
+                  }
+                }
+                if(e.type==="back") saveNow();
+              }
+            }
+            if(tickRef.current%20===0&&stateRef.current.world?.remains?.length){ const sR=stateRef.current; stateRef.current={...sR,world:stepWildRemains(sR.world,sR.clock||0)}; }
             if(tickRef.current%20===0){
               // Carried creatures can still starve (slowly) or reach the end of their lives out here
               const sC=stateRef.current, carried=new Set([...(sC.vine||[]),...(sC.trip.bag||[])]);
@@ -757,7 +788,10 @@ export default function Homebase(){
               const sN=stateRef.current, act=outsideAct(sN), tp=sN.trip.player, w=atlanta();
               focusRef.current=act?.kind==="battle"?act.wild.id:null;
               const biome=w.biome[Math.floor(tp.row)]?.[Math.floor(tp.col)];
-              setUiState(u=>({...u,creatures:sN.creatures,remembered:sN.remembered||[],pods:sN.pods||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},jar:sN.jar||{},act,atSwap:atSwapSpot(sN),
+              const fo=sN.trip.forage, foC=fo&&sN.creatures.find(c=>c.id===fo.id);
+              const forage=fo&&foC?{id:fo.id,name:foC.name,phase:fo.phase,dist:Math.hypot(fo.col-tp.col,fo.row-tp.row),ang:Math.atan2(fo.row-tp.row,fo.col-tp.col),
+                fight:fo.fight?{kind:fo.fight.kind,wild:speciesOf(fo.fight.wild).name,a:fo.fight.A.battleHp/fo.fight.A.maxHp,b:fo.fight.B.battleHp/fo.fight.B.maxHp}:null}:null;
+              setUiState(u=>({...u,forage,creatures:sN.creatures,remembered:sN.remembered||[],pods:sN.pods||[],vine:sN.vine||[],bag:sN.trip.bag||[],where:"out",clock:sN.clock||0,food:sN.food||{},jar:sN.jar||{},act,atSwap:atSwapSpot(sN),
                 place:{biome:BIOME_NAMES[biome]||"",lv:Math.max(1,Math.round(areaLevel(sN.world,areaKey(tp.col,tp.row)))),area:areaKey(tp.col,tp.row)}}));
             }
             continue;
@@ -818,7 +852,8 @@ export default function Homebase(){
         const sO=stateRef.current, z=zoomRef.current;
         if(!outGroundRef.current) outGroundRef.current=buildGround(atlanta().tiles);
         ctx.setTransform(dpr*z,0,0,dpr*z,0,0);
-        drawWorld(ctx,dims.W/z,dims.H/z,{player:sO.trip.player,creatures:sO.trip.wilds,plants:wildPlants(sO.world),floats:sO.floats||[],rustles:sO.trip.rustles,surfaced:sO.trip.surfaced},atlanta().tiles,outGroundRef.current,tickRef.current,null,null,null,focusRef.current);
+        const fsp=forageSprites(sO);
+        drawWorld(ctx,dims.W/z,dims.H/z,{player:sO.trip.player,creatures:[...sO.trip.wilds,...fsp.creatures],bars:fsp.bars,remains:sO.world?.remains||[],clock:sO.clock||0,plants:wildPlants(sO.world),floats:sO.floats||[],rustles:sO.trip.rustles,surfaced:sO.trip.surfaced},atlanta().tiles,outGroundRef.current,tickRef.current,null,null,null,focusRef.current);
         return;
       }
       if(landDirtyRef.current&&ts-lastGroundRef.current>400){
@@ -957,6 +992,15 @@ export default function Homebase(){
               style={{width:34,height:34,borderRadius:8,background:"rgba(0,0,0,0.55)",border:"1px solid rgba(200,230,160,0.3)",color:"#e3f5c8",fontSize:18,lineHeight:1,cursor:"pointer",opacity:(k>1?zoom>=2:zoom<=0.5)?0.35:1,touchAction:"manipulation"}}>{label}</button>
           ))}
         </div>
+        {uiState.where==="out"&&uiState.forage&&(()=>{ const fo=uiState.forage, fi=fo.fight;
+          const arrows=["→","↘","↓","↙","←","↖","↑","↗"], arrow=arrows[((Math.round(fo.ang/(Math.PI/4))%8)+8)%8];
+          const far=fo.dist>=HELP_DIST_UI?` · ${Math.round(fo.dist)} tiles ${arrow}`:"";
+          const pct=v=>Math.round(Math.max(0,v)*100)+"%";
+          return <div style={{position:"absolute",left:8,top:8,zIndex:5,maxWidth:"calc(100% - 64px)",display:"flex",alignItems:"center",gap:8,background:fi?"rgba(80,10,10,0.82)":"rgba(0,0,0,0.6)",border:"1px solid "+(fi?"rgba(248,113,113,0.7)":"rgba(200,230,160,0.25)"),borderRadius:8,padding:"5px 8px",color:fi?"#fecaca":"#dbeac8",fontSize:11,lineHeight:1.3}}>
+            <span style={{minWidth:0}}>{fi?<>⚠ <b>{fo.name}</b> {fi.kind==="hunt"?"is hunting":fi.kind==="prey"?"is under attack by":"is fighting"} a wild {fi.wild} <span style={{color:"#fde68a"}}>({pct(fi.a)} vs {pct(fi.b)})</span>{far||" · press Help!"}</>
+              :<>🐾 <b>{fo.name}</b> {fo.phase==="eat"?"is eating":fo.phase==="return"?"is coming back":"is looking for food"}{far}</>}</span>
+            {!fi&&fo.phase!=="return"&&<button onClick={callBackForager} style={{...btnBase,height:24,fontSize:10,padding:"0 8px",flexShrink:0}}>Call back</button>}
+          </div>; })()}
         {uiState.paused&&(
           <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center"}}>
             <span style={{color:"#c8e6a0",fontSize:22,letterSpacing:"0.22em",textTransform:"uppercase"}}>Paused</span>
@@ -1009,13 +1053,9 @@ export default function Homebase(){
             <div style={{display:"flex",gap:8}}>
               <button onClick={doAct} onContextMenu={e=>e.preventDefault()} aria-label={uiState.act?.label||"Act"}
                 style={{...btnBase,width:96,height:52,background:uiState.act?"rgba(253,230,138,0.16)":"rgba(253,230,138,0.06)",border:"2px solid "+(uiState.act?"rgba(253,230,138,0.6)":"rgba(253,230,138,0.22)"),color:"#fde68a",fontWeight:"bold",borderRadius:14,flexDirection:"column",gap:2}}>
-                <span style={{fontSize:17}}>{{pet:"🤚",harvest:"🌾",out:"🚪",home:"🚪",battle:"⚔️",rest:"💧"}[uiState.act?.kind]||"✋"}</span>
+                <span style={{fontSize:17}}>{{pet:"🤚",harvest:"🌾",out:"🚪",home:"🚪",battle:"⚔️",rest:"💧",help:"🛡️"}[uiState.act?.kind]||"✋"}</span>
                 <span style={{fontSize:10,maxWidth:88,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{uiState.act?.label||"ACT"}</span>
               </button>
-              {uiState.where==="out"&&uiState.act?.feed&&<button onClick={feedWild} onContextMenu={e=>e.preventDefault()} aria-label="Let them feed"
-                style={{...btnBase,width:64,height:52,borderRadius:14,flexDirection:"column",gap:2,background:"rgba(167,243,208,0.12)",border:"2px solid rgba(167,243,208,0.5)",color:"#a7f3d0"}}>
-                <span style={{fontSize:16}}>🍃</span><span style={{fontSize:9,lineHeight:1.1,textAlign:"center"}}>Let them feed ({uiState.act.feed.n})</span>
-              </button>}
               <button onClick={()=>{setPanel("creatures");refreshUi();}} onContextMenu={e=>e.preventDefault()} aria-label="Your creatures"
                 style={{...btnBase,width:58,height:52,borderRadius:14,flexDirection:"column",gap:2}}>
                 <span style={{fontSize:17}}>🐾</span><span style={{fontSize:9,color:"#86efac"}}>{vine.length}/{VINE_MAX}</span>
@@ -1476,6 +1516,14 @@ export default function Homebase(){
                         style={{...btnBase,touchAction:"manipulation",flex:"1 1 45%",minHeight:36,fontSize:12,padding:"4px 8px"}}>
                         {o.icon} {o.label.charAt(0).toUpperCase()+o.label.slice(1)} <span style={{color:"#86efac"}}>×{o.n}</span></button>)}
                     </div></div>; })()}
+                {uiState.where==="out"&&vine.includes(c.id)&&(()=>{ const sNow=stateRef.current, out=sNow?.trip?.forage;
+                  if(out?.id===c.id) return <button onClick={callBackForager} disabled={!!out.fight||out.phase==="return"}
+                    style={{...btnBase,touchAction:"manipulation",height:40,fontSize:13,opacity:out.fight||out.phase==="return"?0.45:1}}>
+                    {out.fight?"⚠ In a fight! Go help it":out.phase==="return"?"Coming back to you…":"🐾 Out foraging · call it back"}</button>;
+                  const why=sNow?canForage(sNow,c):"";
+                  return <button onClick={()=>letOutToForage(c.id)} disabled={!!why}
+                    style={{...btnBase,touchAction:"manipulation",height:40,fontSize:13,opacity:why?0.45:1,border:"1.5px solid rgba(167,243,208,0.45)",color:"#a7f3d0"}}>
+                    🐾 {why?`Let out to forage · ${why.toLowerCase()}`:"Let out to forage"}</button>; })()}
                 {uiState.where==="out"?(()=>{ const inBag=(uiState.bag||[]).includes(c.id);
                   const blocked=!uiState.atSwap||(inBag?vine.length>=VINE_MAX:((uiState.bag||[]).length>=BAG_MAX||vine.length<=1));
                   return <button onClick={()=>moveBetween(c.id)} disabled={blocked}
@@ -1503,7 +1551,7 @@ export default function Homebase(){
         <BattleScreen key={battle.key}
           playerCreature={party[0]}
           wildCreature={battle.wild}
-          intro={battle.how==="charge"?`A wild ${speciesOf(battle.wild).name} charges at you!`:battle.how==="rustle"?`A wild ${speciesOf(battle.wild).name} jumps out of the cover!`:null}
+          intro={battle.how==="help"?`You jump in to help ${party[0]?.name}!`:battle.how==="charge"?`A wild ${speciesOf(battle.wild).name} charges at you!`:battle.how==="rustle"?`A wild ${speciesOf(battle.wild).name} jumps out of the cover!`:null}
           canCatch={vine.length<VINE_MAX||(uiState.bag||[]).length<BAG_MAX}
           pods={(()=>{ const groups=new Map(); for(const p of (uiState.pods||[]).filter(p=>p.creatureId==null)){ const k=p.size+"|"+p.biome; if(!groups.has(k)) groups.set(k,{...p,count:0}); groups.get(k).count++; }
             return [...groups.values()].map(p=>{ const fit=podFit(p,battle.wild.species); return {id:p.id,label:podName(p),count:p.count,fit,fitWord:fitLabel(fit)}; }).sort((a,b)=>b.fit-a.fit); })()}
