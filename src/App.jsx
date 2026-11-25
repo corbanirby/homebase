@@ -585,18 +585,11 @@ export default function Homebase(){
     stateRef.current={...s,creatures:s.creatures.map(o=>o.id===id?{...o,moves:next.map(moveById)}:o)}; refreshUi(); saveNow();
   };
   // ── Feeding the food you carry
-  const feedCreature=id=>{
+  // kind: a gathered food it eats (or left out for the first one it eats in your bag)
+  const feedCreature=(id,want)=>{
     const s=stateRef.current, c=s.creatures.find(o=>o.id===id); if(!c) return;
     if(c.fullness>=0.95){ addFloat(`${c.name} is full`,"#facc15"); return; }
-    // Insect-eaters: critters from your jar first (10 make a meal)
-    const ck=(SPECIES[c.species]?.critters||[]).filter(k=>(s.jar?.[k]||0)>0);
-    if(ck.length){
-      let want=Math.max(1,Math.floor((0.98-c.fullness)/PER_CRITTER)), jar={...s.jar}, n=0;
-      for(const k of ck){ const t=Math.min(want,jar[k]); jar[k]-=t; want-=t; n+=t; if(!jar[k]) delete jar[k]; if(!want) break; }
-      stateRef.current={...s,jar,creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+n*PER_CRITTER),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+n*PER_CRITTER*0.5),starving:0}:o)};
-      addFloat(`${c.name} ate ${n} ${n===1?"critter":"critters"} from your jar`,"#d9f99d"); refreshUi(); saveNow(); return;
-    }
-    const kind=foodFor(c,s.food);
+    const kind=want&&itemFoods(c).includes(want)&&(s.food?.[want]||0)>0?want:foodFor(c,s.food);
     if(!kind){ addFloat(itemFoods(c).length?`No food ${c.name} eats in your bag`:`${c.name} can't be fed by hand (it eats ${dietWords(c)})`,"#facc15"); return; }
     // A meal fills 30% and heals 15%
     stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},creatures:s.creatures.map(o=>o.id===id?{...o,fullness:Math.min(1,o.fullness+0.3),hp:(o.statuses||[]).some(x=>x.id==="festering")?o.hp:Math.min(1,(o.hp??1)+0.15),starving:0}:o)};
@@ -1458,13 +1451,21 @@ export default function Homebase(){
                     <button onClick={()=>moveInVine(c.id,1)} disabled={i===vine.length-1} aria-label="Move later on the vine" style={{...btnBase,touchAction:"manipulation",width:40,height:36,opacity:i===vine.length-1?0.35:1}}>▼</button>
                     <span style={{color:"#6b7a5e",fontSize:11,width:28,textAlign:"right"}}>{i+1}/{vine.length}</span>
                   </div>); })()}
-                {(()=>{ const kind=foodFor(c,uiState.food), n=kind?(uiState.food?.[kind]||0):0;
-                  const cn=(SPECIES[c.species]?.critters||[]).reduce((a,k)=>a+(uiState.jar?.[k]||0),0);
-                  const can=cn>0||kind;
-                  return <button onClick={()=>feedCreature(c.id)} disabled={!can||c.fullness>=0.95}
-                    style={{...btnBase,touchAction:"manipulation",height:36,fontSize:12,opacity:!can||c.fullness>=0.97?0.45:1}}>
-                    {cn>0?"🪱":"🌿"} {c.fullness>=0.97?"Full":cn>0?`Feed critters from your jar (${cn} it eats)`:kind?`Feed ${FOOD_NAMES[kind].toLowerCase()} (${n} left)`:itemFoods(c).length||dietOf(c).critters.length?"No food it eats in your bag":"Can't be fed by hand"}`}
-                  </button>; })()}
+                {(()=>{ // Every food it eats that you're carrying: gathered food in your bag, critters in your jar
+                  const opts=[
+                    ...itemFoods(c).filter(k=>(uiState.food?.[k]||0)>0).map(k=>({key:"f"+k,icon:"🌿",label:FOOD_NAMES[k]||k,n:uiState.food[k],go:()=>feedCreature(c.id,k)})),
+                    ...dietOf(c).critters.filter(k=>(uiState.jar?.[k]||0)>0).map(k=>({key:"c"+k,icon:CRITTERS[k]?.icon||"🪱",label:CRITTERS[k]?.plural||k,n:uiState.jar[k],go:()=>feedCritterTo(c.id,k)})),
+                  ];
+                  const full=c.fullness>=0.95;
+                  if(!opts.length||full) return <button disabled style={{...btnBase,height:36,fontSize:12,opacity:0.45}}>
+                    {full?"Full":itemFoods(c).length||dietOf(c).critters.length?"No food it eats in your bag":`Can't be fed by hand (it eats ${dietWords(c)})`}</button>;
+                  return <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    <div style={{color:"#9aab88",fontSize:11,letterSpacing:1}}>FEED</div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                      {opts.map(o=><button key={o.key} onClick={o.go}
+                        style={{...btnBase,touchAction:"manipulation",flex:"1 1 45%",minHeight:36,fontSize:12,padding:"4px 8px"}}>
+                        {o.icon} {o.label.charAt(0).toUpperCase()+o.label.slice(1)} <span style={{color:"#86efac"}}>×{o.n}</span></button>)}
+                    </div></div>; })()}
                 {uiState.where==="out"?(()=>{ const inBag=(uiState.bag||[]).includes(c.id);
                   const blocked=!uiState.atSwap||(inBag?vine.length>=VINE_MAX:((uiState.bag||[]).length>=BAG_MAX||vine.length<=1));
                   return <button onClick={()=>moveBetween(c.id)} disabled={blocked}
