@@ -554,9 +554,9 @@ export default function Homebase(){
     const pod=bestPod(s.pods||[],c.species); if(!pod){ addFloat("No empty pods","#facc15"); return; }
     stateRef.current={...s,pods:s.pods.map(p=>p.id===pod.id?{...p,creatureId:id}:p)}; refreshUi(); saveNow();
   };
-  const addPodFood=id=>{
+  const addPodFood=(id,want)=>{
     const s=stateRef.current, c=s.creatures.find(o=>o.id===id), pod=(s.pods||[]).find(p=>p.creatureId===id); if(!c||!pod||pod.food>=POD_FOOD_MAX) return;
-    const kind=foodFor(c,s.food); if(!kind){ addFloat(`No food ${c.name} eats in your bag`,"#facc15"); return; }
+    const kind=want&&itemFoods(c).includes(want)&&(s.food?.[want]||0)>0?want:foodFor(c,s.food); if(!kind){ addFloat(`No food ${c.name} eats in your bag`,"#facc15"); return; }
     stateRef.current={...s,food:{...s.food,[kind]:s.food[kind]-1},pods:s.pods.map(p=>p.id===pod.id?{...p,food:p.food+1}:p)}; refreshUi(); saveNow();
   };
   const[confirmRelease,setConfirmRelease]=useState(null);
@@ -1424,9 +1424,19 @@ export default function Homebase(){
                   <div>
                     <div style={{color:"#6a7a5a",fontSize:10,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4}}>Pod</div>
                     {pod?(
+                      <div style={{display:"flex",flexDirection:"column",gap:6}}>
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
                         <span style={{flex:1,color:"#cbd5c0",fontSize:12}}>🫛 {podName(pod)} <span style={{color:"#6b7a5e"}}>· food {pod.food}/{POD_FOOD_MAX}</span></span>
-                        <button onClick={()=>addPodFood(c.id)} disabled={pod.food>=POD_FOOD_MAX||!foodN} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:pod.food>=POD_FOOD_MAX||!foodN?0.45:1}}>+ Pack food</button>
+                        {(()=>{ const kinds=itemFoods(c).filter(k=>(uiState.food?.[k]||0)>0);
+                          return kinds.length<=1?<button onClick={()=>addPodFood(c.id,kinds[0])} disabled={pod.food>=POD_FOOD_MAX||!foodN} style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 10px",opacity:pod.food>=POD_FOOD_MAX||!foodN?0.45:1}}>+ Pack {kinds[0]?FOOD_NAMES[kinds[0]].toLowerCase():"food"}</button>:null; })()}
+                      </div>
+                      {(()=>{ const kinds=itemFoods(c).filter(k=>(uiState.food?.[k]||0)>0); if(kinds.length<2) return null;
+                        const full=pod.food>=POD_FOOD_MAX;
+                        return <div style={{display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+                          <span style={{color:"#6b7a5e",fontSize:11}}>{full?"Pod is full":"Pack:"}</span>
+                          {kinds.map(k=><button key={k} onClick={()=>addPodFood(c.id,k)} disabled={full}
+                            style={{...btnBase,touchAction:"manipulation",height:30,fontSize:11,padding:"0 8px",opacity:full?0.45:1}}>+ {FOOD_NAMES[k]} <span style={{color:"#86efac"}}>×{uiState.food[k]}</span></button>)}
+                        </div>; })()}
                       </div>
                     ):(
                       <div style={{display:"flex",alignItems:"center",gap:8}}>
