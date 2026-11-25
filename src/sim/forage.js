@@ -66,7 +66,7 @@ export function callBack(state) {
 
 // ── Remains out in the world (from battles and hunts), kept in world.remains
 export function addWildRemains(world, c, col, row, clock, name = null) {
-  return { ...world, remains: [...(world.remains || []), { id: newId(), col, row, species: c.species, name: name || speciesOf(c).name, size: sizeOf(c), diedAt: clock, energy: 3, wild: true }] };
+  return { ...world, remains: [...(world.remains || []), { id: newId(), col, row, species: c.species, name: name || speciesOf(c).name, size: sizeOf(c), diedAt: clock, energy: 1, wild: true }] };
 }
 export function stepWildRemains(world, clock) {
   const list = world.remains || [];
@@ -279,11 +279,11 @@ export function stepForage(state, tick, plants, speed = 1) {
       else if (t.type === "remains") {
         const r = (world.remains || []).find(x => x.id === t.id);
         if (!r || r.energy <= 0.06) ok = false;
-        else { gain = Math.min(need, r.energy * 0.5); world = { ...world, remains: world.remains.map(x => x.id === r.id ? { ...x, energy: x.energy - gain / 0.5 } : x) }; }
+        else { gain = Math.min(need, 0.5); world = { ...world, remains: world.remains.filter(x => x.id !== r.id) }; } // one meal, then gone
       }
       if (ok && gain > 0.005) {
         setC({ ...c, fullness: (c.fullness ?? 0) + gain, hp: canHeal(c) ? Math.min(1, (c.hp ?? 1) + gain * 0.5) : c.hp, starving: 0 });
-        say(`${c.name} ${t.type === "sap" ? "drank sap" : t.type === "nectar" ? "sipped nectar" : t.type === "critters" ? `dug up ${t.kinds.map(k => critterName(k, 2)).join(" and ")}` : t.type === "remains" ? "picked at the remains" : `grazed ${foodWord(t)}`}`, "#a7f3d0");
+        say(`${c.name} ${t.type === "sap" ? "drank sap" : t.type === "nectar" ? "sipped nectar" : t.type === "critters" ? `dug up ${t.kinds.map(k => critterName(k, 2)).join(" and ")}` : t.type === "remains" ? "ate the remains" : `grazed ${foodWord(t)}`}`, "#a7f3d0");
       } else if (!ok) say(`Someone got to the ${foodWord(t)} first`, "#facc15");
       f = { ...f, phase: "return", target: null, path: null };
     }

@@ -396,7 +396,7 @@ function drawRemains(ctx, r, cam, clock) {
   const x = r.col * TS - cam.x, y = r.row * TS - cam.y + 4;
   const k = { small: 0.6, medium: 1, large: 1.45 }[r.size] || 1;
   const left = 1 - (clock - r.diedAt) / REMAINS_MS;
-  ctx.globalAlpha = Math.max(0.15, Math.min(1, left * 4)) * Math.min(1, 0.4 + (r.energy ?? 1) / 3);
+  ctx.globalAlpha = Math.max(0.15, Math.min(1, left * 4)) * Math.min(1, 0.4 + (r.energy ?? 1) * 0.6);
   // a patch of darker, richer ground with a few sprouts
   ctx.fillStyle = "rgba(60,44,28,0.45)"; ctx.beginPath(); ctx.ellipse(x, y, 14 * k, 5 * k, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = "#6fb24a"; for (const [dx, dy] of [[-11, -1], [10, 1], [-4, 3]]) ctx.fillRect(x + dx * k, y + dy * k - 3, 1, 3);

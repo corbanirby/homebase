@@ -59,7 +59,7 @@ export function applyDeaths(state, died, clock, { leaveRemains = true } = {}) {
       dna: c.dna, level: c.level || 1, age: c.age, maxAge: c.maxAge, stageId: lifeStage(c).id,
       livedMs: c.age, cause, diedAt: clock, dead: cause !== "released", released: cause === "released",
     });
-    if (leaveRemains && cause !== "released") remains.push({ id: newId(), col: c.col, row: c.row, species: c.species, name: c.name, size: sizeOf(c), diedAt: clock, energy: 3 });
+    if (leaveRemains && cause !== "released") remains.push({ id: newId(), col: c.col, row: c.row, species: c.species, name: c.name, size: sizeOf(c), diedAt: clock, energy: 1 }); // one meal
     const days = Math.max(1, Math.round(c.age / DAY));
     if (cause === "released") { lines.push(`${c.name} was released into the wild`); continue; }
     lines.push(`${c.name} died of ${causeText(cause)} at ${days} ${days === 1 ? "day" : "days"} old${descendants ? `, leaving ${descendants} ${descendants === 1 ? "descendant" : "descendants"}` : ""}`);

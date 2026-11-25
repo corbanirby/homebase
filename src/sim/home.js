@@ -208,7 +208,7 @@ export function simulateHome(state, tick, input, map, land, dtMs) {
   return {
     ...state, clock, player,
     plants: plants.filter(p => !p._remains && !p._critter), critters, surfaced, jar,
-    remains: (state.remains || []).map(r => { const f = plants.find(p => p._remains && p.id === r.id); return f ? { ...r, energy: f.energy } : r; }),
+    remains: (state.remains || []).map(r => { const f = plants.find(p => p._remains && p.id === r.id); return f ? { ...r, energy: f.energy < r.energy ? 0 : r.energy } : r; }), // one meal: eaten from once, they're gone
     creatures: softCollide(fought, player, map),
     floats: newFloats, events: [...events.slice(-30), ...newEvents], tick,
   };
