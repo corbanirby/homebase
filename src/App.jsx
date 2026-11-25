@@ -97,7 +97,11 @@ const ensureMoves=c=>c.isEgg?c:ensureParts(hasLearnset(c)&&!c.learnsetV?initLear
 const freshWorld=s=>{ if(s.world?.v===WORLD_V) return s;
   const trip=s.where==="out"&&s.trip?{...newTrip(),bag:s.trip.bag||[]}:s.trip;
   return {...s,world:makePops(),trip}; };
-const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(freshWorld({...s0,creatures:uniqueNames((s0.creatures||[]).map(c=>migrateDiet(migrateLeveling(ensureMoves(ensureGenome(c))))))})))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
+// Nov 25: Possumbra and Duskhowl made half as common; saved numbers halve to match
+const rarerNov25=s=>{ if(!s.world?.pops||s.world.rareV>=1) return s;
+  const pops=Object.fromEntries(Object.entries(s.world.pops).map(([k,a])=>[k,{...a,possumbra:(a.possumbra||0)*0.5,duskhowl:(a.duskhowl||0)*0.5}]));
+  return {...s,world:{...s.world,pops,rareV:1}}; };
+const withTripFields=s0=>{ const s=seedsToFood(podSeedsToPods(withPods(rarerNov25(freshWorld({...s0,creatures:uniqueNames((s0.creatures||[]).map(c=>migrateDiet(migrateLeveling(ensureMoves(ensureGenome(c))))))}))))); return liftStarters({...s,where:s.where||"home",trip:s.trip||null,world:s.world||makePops(),food:s.food||{bogmoss:2,cattail:1},
   pack:s.pack||[],holding:s.holding??null,remembered:s.remembered||[],remains:s.remains||[]}); };
 // Saves hit by the old catch-up bug can have two creatures sharing an id: the later ones get new ids
 // (the vine, bag and pods keep pointing at the first)

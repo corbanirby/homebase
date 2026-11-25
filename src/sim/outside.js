@@ -29,7 +29,7 @@ function capacity(area, sp) {
 export function makePops() {
   const w = atlanta(), pops = {}, lv = {};
   for (const [k, area] of Object.entries(w.areas)) { pops[k] = {}; for (const sp of ATLANTA_SPECIES) pops[k][sp] = capacity(area, sp) * (0.7 + Math.random() * 0.3); lv[k] = Math.max(1, areaPotential(k) * 0.5); }
-  return { v: WORLD_V, pops, popsAt: Date.now(), lv };
+  return { v: WORLD_V, pops, popsAt: Date.now(), lv, rareV: 1 };
 }
 // ─── Area levels ──────────────────────────────────────────────────────────────
 // Each population area has a potential (up to 50): low by your door, high in remote,
