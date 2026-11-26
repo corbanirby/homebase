@@ -23,7 +23,7 @@ export const LOCI = {
   feet:     { label: "Feet",     alleles: { padded: { name: "padded paws", rank: 2, weight: 3 }, flat: { name: "flat paws", rank: 1, weight: 1 }, claws: { name: "clawed feet", rank: 1, weight: 1 }, jointedlegs: { name: "six jointed legs", rank: 2, weight: 0 }, diggingforelegs: { name: "big digging forelegs", rank: 1, weight: 0 } } },
   build:    { label: "Build",    alleles: { stocky: { name: "stocky build", rank: 2, weight: 3 }, lean: { name: "lean build", rank: 1, weight: 1 } } },
   antennae: { label: "Antennae", alleles: { short: { name: "short antennae", rank: 2, weight: 0 }, none: { name: "no antennae", rank: 1, weight: 0 } } },
-  haze:     { label: "Haze",     alleles: { violet: { name: "violet haze clinging to the fur", rank: 2, weight: 0 }, none: { name: "no haze", rank: 1, weight: 0 } } },
+  haze:     { label: "Haze",     alleles: { violet: { name: "violet haze clinging to the fur", rank: 2, weight: 0 }, shadow: { name: "shadow and smoke as it ages", rank: 2, weight: 0 }, none: { name: "no haze", rank: 1, weight: 0 } } },
   shimmer:  { label: "Shimmer",  alleles: { paleblue: { name: "pale-blue shimmer on the wing edges", rank: 2, weight: 0 }, none: { name: "no shimmer", rank: 1, weight: 0 } } },
 };
 // Founder parts per species, written from its finished sprite. Species without one have no part genes yet.
@@ -36,6 +36,8 @@ export const FOUNDERS = {
   thrummet: { eyes: "bulgingred", back: "roofwings", shimmer: "paleblue", antennae: "short", covering: "shell", pattern: "darkmarkings", feet: "jointedlegs" },
   // Opossum: pale pointed snout, glossy black eyes, round ears, bare pink tail, a violet haze on grey-white fur
   possumbra: { head: "pointedsnout", eyes: "glossyblack", ears: "round", tail: "barepink", covering: "fur", feet: "claws", haze: "violet" },
+  // Coyote: narrow fierce eyes, pointed ears, lean, long tail; turns to shadow as it grows old
+  duskhowl: { eyes: "narrowfierce", ears: "pointed", tail: "long", covering: "fur", feet: "claws", build: "lean", haze: "shadow" },
 };
 // Hidden copies a species can carry, by part; a species listed here carries only these
 // (any other part stays the founder's). Species not listed draw from every option by weight.
@@ -43,6 +45,7 @@ export const FOUNDER_HIDDEN = {
   scuffinch: { crown: ["tuft"], pattern: ["spots"] },
   thrummet: { feet: ["diggingforelegs"] },
   possumbra: { ears: ["pointed"], haze: ["none"] },
+  duskhowl: { ears: ["round"] },
 };
 export const MUTATE_PART = 0.02;
 const loci = sp => Object.keys(FOUNDERS[sp] || {});

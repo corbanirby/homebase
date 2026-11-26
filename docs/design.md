@@ -203,7 +203,7 @@ Built in stages, each one playable and tested before the next. Placeholder art (
 | Glimmerwick | Electric / Bug | Firefly | Meadows, creek edges at dusk | Nectar and dew |
 | Possumbra | Spirit / Normal | Opossum | Everywhere | Almost anything |
 | Clattershell | Metal / Earth | Armadillo | Pine stands, red clay | Grubs and roots |
-| Duskhowl | Normal / Spirit | Coyote | Wide-ranging | Hunts smaller creatures |
+| Duskhowl | Normal (baby, adolescent) · Normal / Spirit (adult) · Spirit (elder) | Coyote | Wide-ranging | Hunts smaller creatures |
 
 - All nine start with placeholder art.
 - A caught creature goes onto the vine until it is full, then into the bag. The bag holds 6 creatures (12 carried at most); with a full bag you can't catch.
@@ -555,6 +555,8 @@ Slow, heavily plated, digs for grubs, and when startled leaps straight up, three
 | 48 | Elder | Ironhide | Metal | Support | — | — | 15 | Defense and Resistance up 2; heals 15% |
 
 ### Duskhowl (Normal/Spirit) — the coyote, rare
+
+**Type by life stage (Nov 25):** a natural coyote while young (Normal), part shadow as an adult (Normal/Spirit), all shadow as an elder (Spirit). Young ones' Spirit moves lose the same-type bonus; the elder's Normal attacks do.
 
 The apex hunter: strong, long-lived, rare. Runs prey down, yip-howls at dusk, and in a frenzy stops thinking. Signature: **Bleed** and **Fear**; brings **Berserk** (also from a high Temper gene when badly hurt). **New mechanic: Stalk** (its next hit is a sure critical hit). Stamina 1.3. Elder: Attack −10%, Elemental +10%, Resistance +10% (the old pack leader).
 
