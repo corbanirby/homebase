@@ -37,7 +37,7 @@ export const SPECIES = {
     learnset:[ {lv:1,move:"bump"}, {lv:7,move:"sourspit"}, {lv:10,move:"warningspots"}, {lv:17,move:"mudkick"},
       {lv:23,stage:"adolescent",move:"ram"}, {lv:29,stage:"adolescent",move:"foulbite"}, {lv:36,stage:"adult",move:"swampgas"},
       {lv:40,stage:"adult",move:"toxichide"}, {lv:46,stage:"adult",move:"skullcrack"}, {lv:52,stage:"elder",move:"oldramsstand"} ] },
-  kudzoon: { no:2, name:"Kudzoon", growth:"slow", found:{ kudzu:1, forest:0.25, clay:0.1, meadow:0.1 }, rarity:0.7, catchK:1, appetite:"medium", stageStats:{ baby:{hp:1.06,atk:0.59,def:0.75,ele:0.81,res:0.93,spd:0.48}, adolescent:{hp:1.17,atk:0.74,def:0.81,ele:1.02,res:1.02,spd:0.84}, adult:{hp:1.5,atk:0.87,def:1.23,ele:1.2,res:1.2,spd:0.6}, elder:{hp:1.29,atk:0.82,def:1.27,ele:1.13,res:1.36,spd:0.4} }, base:{hp:1.15,atk:0.85,def:1.0,ele:1.05,res:1.05,spd:0.75}, fastHours:96, art:"kudzoon", palette:{ main:{ hue:105, width:30, minSat:0.3, range:38 }, accent:{ hue:275, width:25, minSat:0.3, range:60 } }, types:["Plant"], lifespanDays:40, habitat:{ wet:[0.15,0.45,0.85] }, eats:HOMEFOOD,
+  kudzoon: { no:2, name:"Kudzoon", growth:"slow", found:{ kudzu:1, forest:0.25, clay:0.1, meadow:0.1 }, rarity:0.7, catchK:1, appetite:"medium", stageStats:{ baby:{hp:1.06,atk:0.59,def:0.75,ele:0.81,res:0.93,spd:0.48}, adolescent:{hp:1.17,atk:0.74,def:0.81,ele:1.02,res:1.02,spd:0.84}, adult:{hp:1.5,atk:0.87,def:1.23,ele:1.2,res:1.2,spd:0.6}, elder:{hp:1.29,atk:0.82,def:1.27,ele:1.13,res:1.36,spd:0.4} }, base:{hp:1.15,atk:0.85,def:1.0,ele:1.05,res:1.05,spd:0.75}, fastHours:96, path:"sprites/kudzoon", bloom:true, palette:{ main:{ hue:70, width:22, minSat:0.25, range:38 }, accent:{ hue:295, width:28, minSat:0.25, range:60 } }, types:["Plant"], lifespanDays:40, habitat:{ wet:[0.15,0.45,0.85] }, eats:HOMEFOOD,
     diet:"Sunlight and soil; spreads fast", based:"Kudzu", biomes:{ kudzu:1, forest:0.25, clay:0.2, meadow:0.15 }, sizeMul:1.0, temper:[0.3,0.8],
     // Old kudzu crowns live for decades: a long life, and a long, tough elder stage (from 70% of its life)
     stageEnds:[0.107,0.286,0.70], elder:{ hp:1.1, def:1.15, res:1.15, spd:0.8, atk:0.95 }, stamina:1.2, trait:"footADay",
@@ -160,8 +160,14 @@ export function colourShift(c){
 }
 const tintCache={};
 // The creature's own sprite: the species' art with its colours turned by its genes
+// A species with bloom:true has a flowering version of its adult sprites ("bloom"), shown
+// while the creature is ready to breed (the game registers that test; see breeding.js).
+let bloomTest=null;
+export const setBloomTest=f=>{ bloomTest=f; };
 export function creatureSprite(c,stage,dir){
-  const sp=speciesOf(c), base=spriteImage(sp,stage,dir);
+  const sp0=speciesOf(c);
+  if(sp0.bloom&&stage==="adult"&&bloomTest&&bloomTest(c)) stage="bloom";
+  const sp=sp0, base=spriteImage(sp,stage,dir);
   if(!base||!sp.palette) return base;
   const [dm,da]=colourShift(c);
   if(!dm&&!da) return base;
@@ -186,7 +192,7 @@ export function creatureSprite(c,stage,dir){
   return out;
 }
 // Preload every stage and direction so sprites never pop in mid-game
-Object.values(SPECIES).filter(sp=>!sp.art).forEach(sp=>STAGES.forEach(st=>DIRS8.forEach(d=>spriteImage(sp,st.id,d))));
+Object.values(SPECIES).filter(sp=>!sp.art).forEach(sp=>[...STAGES.map(st=>st.id),...(sp.bloom?["bloom"]:[])].forEach(st=>DIRS8.forEach(d=>spriteImage(sp,st,d))));
 export function useSpritesLoaded(){
   const [,setV]=useState(0);
   useEffect(()=>{const f=()=>setV(v=>v+1);spriteListeners.add(f);return()=>spriteListeners.delete(f);},[]);

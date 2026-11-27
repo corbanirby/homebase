@@ -72,6 +72,13 @@ export function breedStatus(c, all, clock) {
   if (!mate) return "Ready to breed, no mate yet";
   return "Ready to breed with " + mate.name;
 }
+// Ready to breed, as far as the creature itself goes (wild ones too): an adult in good
+// condition, and a female not resting after a clutch. Kudzoon flowers while this is true.
+export function readyToBloom(c, clock) {
+  if (c.isEgg || !isAdult(c) || conditionOf(c) < 0.65) return false;
+  if (c.sex === "F" && (c.layAt || (c.lastClutch != null && clock - c.lastClutch < breedParams(c.species).restMs))) return false;
+  return true;
+}
 function canBreed(c, clock) {
   if (c.isEgg || c.wild || c.noBreed || !isAdult(c) || conditionOf(c) < 0.65) return false;
   if (c.sex === "F" && (c.layAt || (c.lastClutch != null && clock - c.lastClutch < breedParams(c.species).restMs))) return false;

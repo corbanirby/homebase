@@ -12,8 +12,8 @@ import { typeBg, typeEdge } from "./creatures/typeTint.js";
 import { makePlayer } from "./creatures/factory.js";
 import { makeResident, pickName, uniqueNames, migrateDiet, raiseToLevel, STARTER_LEVEL, DAY, VINE_MAX, HUNGRY_AT, WEAK_AT, conditionOf, conditionWord, fullnessWord, habitatWord, nextStageIn } from "./creatures/resident.js";
 import { PLANT_SPECIES, fitOf, fitWord, makeSeedling, plantKey, startingPlants, plantEffects, growPlants } from "./plants/plants.js";
-import { speciesOf, lifeStage, CreatureIcon, SPECIES } from "./creatures/species.jsx";
-import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate } from "./creatures/breeding.js";
+import { speciesOf, lifeStage, CreatureIcon, SPECIES, setBloomTest } from "./creatures/species.jsx";
+import { stepBreeding, nestFinder, breedStatus, ensureGenome, breedParams, eggClimate, readyToBloom } from "./creatures/breeding.js";
 import { podName, podFit, fitLabel, bestPod, podsFromPlant, makePod, starterPods, podSeedsToPods, POD_FOOD_MAX } from "./creatures/pods.js";
 import { stepMortality, applyDeaths, stepRemains, inLastDays, fastMs, causeText, countDescendants } from "./creatures/death.js";
 import { simulateHome } from "./sim/home.js";
@@ -159,6 +159,8 @@ const condColor=v=>v>=0.85?"#86efac":v>=0.65?"#bef264":v>=0.45?"#facc15":"#f8717
 export default function Homebase(){
   const canvasRef=useRef(null);
   const fnRef=useRef({});
+  // Flowering sprites (Kudzoon) show while the creature is ready to breed
+  if(!setBloomTest.done){ setBloomTest(c=>readyToBloom(c,stateRef.current?.clock||0)); setBloomTest.done=true; }
   const stateRef=useRef(null);
   const tickRef=useRef(0);          // world steps since this session's world was loaded
   const animRef=useRef(null);

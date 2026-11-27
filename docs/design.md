@@ -430,6 +430,8 @@ Sprite (when PixelLab is connected): baby a fluffy nestling with a stubby tail; 
 
 "The vine that ate the South": a slow, tough smotherer that keeps growing, lulls foes with grape-scented blooms, and is hard to put down. Signature status: Tangle (with Leech and Drowsy). Stages: seedling → runner → flowering mound → woody crown. **Lives 40 days; elder from 70% of its life** (days 28–40). **Elder:** HP +10%, Defense and Resistance +15%, Speed −20%, Attack −5%. **Stamina 1.2.**
 
+**Look (Nov 27):** seedling bulb → leafy-capped bulb → kudzu mound → woody crown on roots, always creeping, never walking. Like real kudzu, which mostly spreads by rooting runners and only flowers now and then, an adult Kudzoon is in flower only while it's ready to breed (Good condition; a female not resting after a clutch).
+
 **A Foot a Day (species trait):** each round it stays in, it gains 6% of its current HP, with no cap, and can go over its max. Lost when swapped out. A hurt Kudzoon grows slower.
 
 **Blanket the Hills (first battlefield effect):** Overgrown for 5 turns: Plant moves +25%, non-Plant creatures 20% slower, Tangle 1.5× as likely.
