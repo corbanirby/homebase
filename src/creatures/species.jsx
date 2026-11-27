@@ -131,7 +131,7 @@ export function spriteImage(sp,stage,dir){
   if(!img){
     img=new Image();
     img.onload=()=>spriteListeners.forEach(f=>f());
-    img.src=(import.meta.env.BASE_URL||"/")+key;
+    img.src=(import.meta.env.BASE_URL||"/")+key+"?v="+(typeof __BUILD_ID__!=="undefined"?__BUILD_ID__:"dev");
     spriteCache[key]=img;
   }
   return img.complete&&img.naturalWidth?img:null;
